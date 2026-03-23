@@ -28,8 +28,8 @@ description: Generate structured scientific manuscript claims JSON from study me
   "findings": [
     {
       "finding_id": "string",
-      "claim_text": "string",
-      "evidence_reference_ids": ["string"],
+      "raw_result": "string",
+      "uncertainty": "string",
       "priority": "primary|secondary"
     }
   ],
@@ -52,7 +52,6 @@ description: Generate structured scientific manuscript claims JSON from study me
       "finding_ids": ["string"],
       "text": "string",
       "priority": "primary|secondary",
-      "evidence_reference_ids": ["string"],
       "evidence_needed": "RCT|meta-analysis|systematic review|observational|guideline|conceptual",
       "justification": "string"
     }
@@ -68,6 +67,7 @@ description: Generate structured scientific manuscript claims JSON from study me
 ## JSON Rules
 - `claim_id` must be sequential in the emitted order.
 - `finding_ids` must be non-empty.
-- `evidence_reference_ids` must mirror the source finding.
+- `text` must come from the source `raw_result` without inventing unsupported detail.
+- `uncertainty` must influence evidence selection when it changes certainty strength.
 - `justification` should stay below 20 words where possible.
 - `generation_notes` must stay machine-readable; do not add prose.

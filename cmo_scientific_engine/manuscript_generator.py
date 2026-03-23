@@ -11,7 +11,7 @@ Claim = Dict[str, Any]
 
 
 REQUIRED_STUDY_KEYS = ("study_id", "title", "domain", "objective")
-REQUIRED_FINDING_KEYS = ("finding_id", "claim_text", "evidence_reference_ids", "priority")
+REQUIRED_FINDING_KEYS = ("finding_id", "raw_result", "uncertainty", "priority")
 ALLOWED_EVIDENCE_NEEDED = (
     "RCT",
     "meta-analysis",
@@ -56,22 +56,30 @@ def _validate_study(study: Dict[str, Any]) -> None:
         raise InputValidationError(f"missing study keys: {missing}")
 
 
-def _validate_claim_text(finding: Dict[str, Any]) -> None:
-    claim_text = finding["claim_text"].strip()
-    normalized = claim_text.lower()
-    if len(claim_text.split()) < 6:
+def _finding_text(finding: Dict[str, Any]) -> str:
+    return finding["raw_result"].strip()
+
+
+def _normalized_uncertainty(finding: Dict[str, Any]) -> str:
+    return finding["uncertainty"].strip().lower()
+
+
+def _validate_finding_text(finding: Dict[str, Any]) -> None:
+    raw_result = _finding_text(finding)
+    normalized = raw_result.lower()
+    if len(raw_result.split()) < 6:
         raise InputValidationError(
-            f"finding {finding['finding_id']} claim_text too short for peer review"
+            f"finding {finding['finding_id']} raw_result too short for peer review"
         )
     if any(pattern in normalized for pattern in GENERIC_PATTERNS):
         raise InputValidationError(
-            f"finding {finding['finding_id']} claim_text too generic for peer review"
+            f"finding {finding['finding_id']} raw_result too generic for peer review"
         )
-    has_numeric_anchor = bool(re.search(r"\b\d+(?:\.\d+)?\b", claim_text))
+    has_numeric_anchor = bool(re.search(r"\b\d+(?:\.\d+)?\b", raw_result))
     has_testable_marker = any(marker in normalized for marker in TESTABLE_MARKERS)
     if not (has_numeric_anchor or has_testable_marker):
         raise InputValidationError(
-            f"finding {finding['finding_id']} claim_text lacks a testable anchor"
+            f"finding {finding['finding_id']} raw_result lacks a testable anchor"
         )
 
 
@@ -84,29 +92,31 @@ def _validate_findings(findings: List[Dict[str, Any]]) -> None:
             raise InputValidationError(
                 f"finding {finding.get('finding_id', '<missing>')} missing keys: {missing}"
             )
-        if not finding["evidence_reference_ids"]:
+        if not finding["uncertainty"].strip():
             raise InputValidationError(
-                f"finding {finding['finding_id']} must include evidence_reference_ids"
+                f"finding {finding['finding_id']} must include uncertainty"
             )
-        _validate_claim_text(finding)
+        _validate_finding_text(finding)
 
 
 def _infer_evidence_needed(finding: Dict[str, Any]) -> str:
-    claim_text = finding["claim_text"].lower()
+    result_text = _finding_text(finding).lower()
+    uncertainty = _normalized_uncertainty(finding)
+    combined = f"{result_text} {uncertainty}"
 
-    if any(token in claim_text for token in ("guideline", "consensus", "recommend")):
+    if any(token in combined for token in ("guideline", "consensus", "recommend")):
         return "guideline"
-    if any(token in claim_text for token in ("meta-analysis", "pooled", "across studies")):
+    if any(token in combined for token in ("meta-analysis", "pooled", "across studies")):
         return "meta-analysis"
-    if any(token in claim_text for token in ("systematic review", "reviewed studies")):
+    if any(token in combined for token in ("systematic review", "reviewed studies")):
         return "systematic review"
-    if any(token in claim_text for token in ("mechanism", "pathway", "framework", "conceptual")):
+    if any(token in combined for token in ("mechanism", "pathway", "framework", "conceptual")):
         return "conceptual"
-    if any(token in claim_text for token in ("association", "correlated", "predict", "linked")):
+    if any(token in combined for token in ("association", "correlated", "predict", "linked")):
         return "observational"
-    if finding["priority"] == "primary":
+    if finding["priority"] == "primary" and uncertainty not in {"high", "substantial", "exploratory"}:
         return "RCT"
-    if any(token in claim_text for token in ("adherence", "utilization", "uptake", "pattern")):
+    if any(token in combined for token in ("adherence", "utilization", "uptake", "pattern")):
         return "observational"
     return "observational"
 
@@ -141,8 +151,8 @@ def generate_claims(payload: StudyInput) -> Dict[str, Any]:
     for finding in findings:
         evidence_needed = _infer_evidence_needed(finding)
         dedupe_key = (
-            finding["claim_text"].strip(),
-            tuple(finding["evidence_reference_ids"]),
+            _finding_text(finding),
+            _normalized_uncertainty(finding),
             finding["priority"],
             evidence_needed,
         )
@@ -154,9 +164,8 @@ def generate_claims(payload: StudyInput) -> Dict[str, Any]:
         claim = {
             "claim_id": f"CLM-{len(claims) + 1:03d}",
             "finding_ids": [finding["finding_id"]],
-            "text": finding["claim_text"].strip(),
+            "text": _finding_text(finding),
             "priority": finding["priority"],
-            "evidence_reference_ids": list(finding["evidence_reference_ids"]),
             "evidence_needed": evidence_needed,
             "justification": _build_justification(evidence_needed),
         }

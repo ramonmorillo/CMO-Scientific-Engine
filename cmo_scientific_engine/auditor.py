@@ -56,7 +56,6 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
     claim_audits = []
     weak_claim_count = 0
     high_quality_claim_count = 0
-    orphan_reference_ids: Set[str] = set()
 
     seen_claim_ids: Set[str] = set()
     for claim_id in claim_ids:
@@ -80,12 +79,6 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                 }
             )
 
-    expected_reference_ids = {
-        reference_id
-        for claim in claims
-        for reference_id in claim.get("evidence_reference_ids", [])
-    }
-
     for mapping in mappings:
         mapping_claim_id = mapping["claim_id"]
         if mapping_claim_id not in claim_id_set:
@@ -107,18 +100,6 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                         "severity": "fail",
                     }
                 )
-            if reference_id not in expected_reference_ids:
-                orphan_reference_ids.add(reference_id)
-
-    for reference_id in sorted(orphan_reference_ids):
-        failed_checks.append(
-            {
-                "claim_id": "GLOBAL",
-                "code": "orphan_reference",
-                "detail": f"orphan_reference_id:{reference_id}",
-                "severity": "fail",
-            }
-        )
 
     for claim in claims:
         claim_id = claim["claim_id"]
@@ -151,6 +132,7 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
 
         if mapped_reference_ids:
             checks.append("has_references")
+            checks.append("references_mapped_from_finding_overlap")
         else:
             status = "fail"
             failed_checks.append(
@@ -162,25 +144,12 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                 }
             )
 
-        expected_reference_ids_for_claim = set(claim.get("evidence_reference_ids", []))
-        mapped_reference_ids_set = set(mapped_reference_ids)
-        if mapped_reference_ids_set and mapped_reference_ids_set.issubset(expected_reference_ids_for_claim):
-            checks.append("reference_ids_match_evidence_ids")
-        else:
-            status = "fail"
-            failed_checks.append(
-                {
-                    "claim_id": claim_id,
-                    "code": "reference_mismatch",
-                    "detail": "mapped_reference_ids_not_subset_of_evidence_reference_ids",
-                    "severity": "fail",
-                }
-            )
-
         evidence_level_ok = "YES" if mapped_reference_ids and all(
             match in {"HIGH", "MODERATE"} for match in evidence_matches
         ) else "NO"
-        direct_support = "YES" if mapped_reference_ids_set == expected_reference_ids_for_claim else "NO"
+        direct_support = "YES" if mapped_reference_ids and all(
+            flag != "evidence_needed_mismatch" for flag in mismatch_flags
+        ) else "NO"
         risk_of_bias = _risk_of_bias(claim, evidence_matches)
         overclaiming = _is_overclaiming(claim, evidence_matches)
         weak_support = (not mapped_reference_ids) or any(match in WEAK_EVIDENCE for match in evidence_matches)

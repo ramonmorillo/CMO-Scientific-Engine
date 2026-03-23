@@ -8,21 +8,21 @@
   "findings": [
     {
       "finding_id": "FND-001",
-      "claim_text": "Sleep extension increased median cognitive throughput by 14 percent after six weeks.",
-      "evidence_reference_ids": ["REF-001"],
+      "raw_result": "Sleep extension increased median cognitive throughput by 14 percent after six weeks.",
+      "uncertainty": "moderate",
       "priority": "primary"
     },
     {
       "finding_id": "FND-002",
-      "claim_text": "Protocol adherence remained above 90 percent throughout the intervention period.",
-      "evidence_reference_ids": ["REF-002"],
+      "raw_result": "Protocol adherence remained above 90 percent throughout the intervention period.",
+      "uncertainty": "low",
       "priority": "secondary"
     }
   ],
   "reference_library": [
     {
       "reference_id": "REF-001",
-      "citation": "Navarro L, Singh P. Cognitive throughput after sleep extension. J Sleep Metrics. 2025;12(4):201-210.",
+      "citation": "Navarro L, Singh P. Randomized trial of cognitive throughput after sleep extension. J Sleep Metrics. 2025;12(4):201-210.",
       "finding_ids": ["FND-001"]
     },
     {

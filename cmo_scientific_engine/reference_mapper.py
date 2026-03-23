@@ -77,10 +77,9 @@ def _evidence_alignment(required: str, observed: str) -> str:
 
 
 def map_references(claims_json: Dict[str, Any], reference_library: List[Reference]) -> Dict[str, Any]:
-    """Map claims to supporting references using evidence identifiers."""
+    """Map claims to supporting references from finding overlap."""
     _validate_reference_library(reference_library)
 
-    references_by_id = {reference["reference_id"]: reference for reference in reference_library}
     claim_reference_map = []
     unmapped_claims = []
 
@@ -91,18 +90,22 @@ def map_references(claims_json: Dict[str, Any], reference_library: List[Referenc
         mismatch_flags = []
         claim_finding_ids = set(claim["finding_ids"])
         evidence_needed = claim.get("evidence_needed", "observational")
-        for reference_id in claim["evidence_reference_ids"]:
-            reference = references_by_id.get(reference_id)
-            if reference is None:
-                continue
-            if not claim_finding_ids.intersection(reference["finding_ids"]):
-                continue
+        candidate_references = sorted(
+            (
+                reference
+                for reference in reference_library
+                if claim_finding_ids.intersection(reference["finding_ids"])
+            ),
+            key=lambda item: item["reference_id"],
+        )
+
+        for reference in candidate_references:
             citation = reference["citation"]
             observed_evidence = _infer_reference_evidence_type(citation)
             match = _evidence_alignment(evidence_needed, observed_evidence)
             if not _citation_is_structured(citation):
                 match = "LOW"
-            reference_ids.append(reference_id)
+            reference_ids.append(reference["reference_id"])
             citations.append(citation)
             evidence_match.append(match)
             if match == "LOW":
