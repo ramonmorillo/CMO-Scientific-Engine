@@ -10,6 +10,7 @@ Failure = Dict[str, str]
 CLAIM_ID_PATTERN = re.compile(r"^CLM-\d{3}$")
 REFERENCE_ID_PATTERN = re.compile(r"^REF-\d{3}$")
 HIGH_QUALITY_EVIDENCE = {"HIGH"}
+ACCEPTABLE_EVIDENCE = {"HIGH", "MODERATE"}
 WEAK_EVIDENCE = {"LOW"}
 
 
@@ -19,27 +20,35 @@ def _percent(part: int, whole: int) -> float:
     return round((part / whole) * 100, 1)
 
 
-def _risk_of_bias(claim: Dict[str, Any], matches: List[str]) -> str:
-    evidence_needed = claim.get("evidence_needed", "observational")
-    if not matches:
+def _best_match(matches: List[str]) -> str | None:
+    if "HIGH" in matches:
         return "HIGH"
-    if evidence_needed == "RCT" and all(match == "HIGH" for match in matches):
-        return "LOW"
-    if any(match == "LOW" for match in matches):
-        return "HIGH"
-    if evidence_needed in {"meta-analysis", "systematic review"} and any(
-        match == "MODERATE" for match in matches
-    ):
+    if "MODERATE" in matches:
         return "MODERATE"
-    return "MODERATE" if evidence_needed == "observational" else "LOW"
+    if "LOW" in matches:
+        return "LOW"
+    return None
 
 
-def _is_overclaiming(claim: Dict[str, Any], matches: List[str]) -> str:
+def _risk_of_bias(claim: Dict[str, Any], best_match: str | None) -> str:
+    evidence_needed = claim.get("evidence_needed", "observational")
+    if best_match is None:
+        return "HIGH"
+    if evidence_needed == "RCT":
+        return "LOW" if best_match == "HIGH" else "MODERATE"
+    if evidence_needed in {"meta-analysis", "systematic review"}:
+        return "MODERATE" if best_match in {"HIGH", "MODERATE"} else "HIGH"
+    if evidence_needed == "conceptual":
+        return "MODERATE" if best_match in {"HIGH", "MODERATE"} else "HIGH"
+    return "MODERATE" if best_match in {"HIGH", "MODERATE"} else "HIGH"
+
+
+def _is_overclaiming(claim: Dict[str, Any], best_match: str | None) -> str:
     text = claim.get("text", "").lower()
     causal_markers = ("caused", "proved", "eliminated", "prevented")
     if any(marker in text for marker in causal_markers) and claim.get("evidence_needed") != "RCT":
         return "YES"
-    if matches and all(match == "LOW" for match in matches):
+    if any(marker in text for marker in causal_markers) and best_match != "HIGH":
         return "YES"
     return "NO"
 
@@ -90,6 +99,21 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                     "severity": "fail",
                 }
             )
+        aligned_lengths = {
+            len(mapping.get("reference_ids", [])),
+            len(mapping.get("citations", [])),
+            len(mapping.get("evidence_match", [])),
+            len(mapping.get("mismatch_flags", [])),
+        }
+        if len(aligned_lengths) != 1:
+            failed_checks.append(
+                {
+                    "claim_id": mapping_claim_id,
+                    "code": "mapping_alignment",
+                    "detail": "mapping_arrays_length_mismatch",
+                    "severity": "fail",
+                }
+            )
         for reference_id in mapping.get("reference_ids", []):
             if not REFERENCE_ID_PATTERN.match(reference_id):
                 failed_checks.append(
@@ -116,6 +140,7 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
         mapped_reference_ids = mapping.get("reference_ids", [])
         evidence_matches = mapping.get("evidence_match", [])
         mismatch_flags = mapping.get("mismatch_flags", [])
+        best_match = _best_match(evidence_matches)
 
         if claim.get("finding_ids"):
             checks.append("has_findings")
@@ -144,27 +169,40 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                 }
             )
 
-        evidence_level_ok = "YES" if mapped_reference_ids and all(
-            match in {"HIGH", "MODERATE"} for match in evidence_matches
-        ) else "NO"
-        direct_support = "YES" if mapped_reference_ids and all(
-            flag != "evidence_needed_mismatch" for flag in mismatch_flags
-        ) else "NO"
-        risk_of_bias = _risk_of_bias(claim, evidence_matches)
-        overclaiming = _is_overclaiming(claim, evidence_matches)
-        weak_support = (not mapped_reference_ids) or any(match in WEAK_EVIDENCE for match in evidence_matches)
-
-        if evidence_matches and all(match in HIGH_QUALITY_EVIDENCE for match in evidence_matches):
+        if best_match == "HIGH":
+            checks.append("scientific_support_high")
             high_quality_claim_count += 1
+        elif best_match == "MODERATE":
+            checks.append("scientific_support_moderate")
+        else:
+            checks.append("scientific_support_low")
+
+        evidence_level_ok = "YES" if best_match in ACCEPTABLE_EVIDENCE else "NO"
+        direct_support = "YES" if mapped_reference_ids else "NO"
+        risk_of_bias = _risk_of_bias(claim, best_match)
+        overclaiming = _is_overclaiming(claim, best_match)
+        weak_support = (not mapped_reference_ids) or best_match in WEAK_EVIDENCE or best_match is None
+
         if weak_support:
             weak_claim_count += 1
+        if "partial_evidence_alignment" in mismatch_flags:
+            checks.append("support_gap_warning")
+            failed_checks.append(
+                {
+                    "claim_id": claim_id,
+                    "code": "partial_evidence_alignment",
+                    "detail": "mapped_reference_partially_matches_needed_evidence",
+                    "severity": "warning",
+                }
+            )
         if "evidence_needed_mismatch" in mismatch_flags:
+            status = "fail"
             failed_checks.append(
                 {
                     "claim_id": claim_id,
                     "code": "evidence_mismatch",
                     "detail": "mapped_reference_evidence_weaker_than_required",
-                    "severity": "warning",
+                    "severity": "fail",
                 }
             )
         if overclaiming == "YES":
@@ -194,15 +232,11 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
 
     weak_support_pct = _percent(weak_claim_count, len(claim_audits))
     high_quality_pct = _percent(high_quality_claim_count, len(claim_audits))
+    fail_count = len([f for f in failed_checks if f["severity"] == "fail"])
+    warning_count = len([f for f in failed_checks if f["severity"] == "warning"])
     reliability_score = max(
-        0,
-        round(
-            100
-            - (weak_support_pct * 0.7)
-            - (len([f for f in failed_checks if f["severity"] == "fail"]) * 8)
-            - (len([f for f in failed_checks if f["severity"] == "warning"]) * 2),
-            1,
-        ),
+        0.0,
+        round(100 - (weak_support_pct * 0.7) - (fail_count * 8) - (warning_count * 2), 1),
     )
 
     if weak_support_pct > 30.0:

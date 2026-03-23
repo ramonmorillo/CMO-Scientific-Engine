@@ -8,21 +8,27 @@ from typing import Any, Dict, List, Set
 
 Reference = Dict[str, Any]
 ALLOWED_EVIDENCE_MATCH = ("HIGH", "MODERATE", "LOW")
+REQUIRED_REFERENCE_KEYS = ("reference_id", "citation", "finding_ids")
 
 
 class ReferenceMappingError(ValueError):
     """Raised when references cannot be mapped safely."""
 
 
-REQUIRED_REFERENCE_KEYS = ("reference_id", "citation", "finding_ids")
-
-
 def _validate_reference_library(reference_library: List[Reference]) -> None:
+    seen_reference_ids = set()
     for reference in reference_library:
         missing = [key for key in REQUIRED_REFERENCE_KEYS if key not in reference]
         if missing:
             raise ReferenceMappingError(
                 f"reference {reference.get('reference_id', '<missing>')} missing keys: {missing}"
+            )
+        if reference["reference_id"] in seen_reference_ids:
+            raise ReferenceMappingError(f"duplicate reference_id: {reference['reference_id']}")
+        seen_reference_ids.add(reference["reference_id"])
+        if not reference["finding_ids"]:
+            raise ReferenceMappingError(
+                f"reference {reference['reference_id']} missing finding_ids"
             )
 
 
@@ -30,15 +36,11 @@ def _infer_reference_evidence_type(citation: str) -> str:
     normalized = citation.lower()
     if "meta-analysis" in normalized:
         return "meta-analysis"
-    if "systematic review" in normalized:
+    if "systematic review" in normalized or "review of" in normalized:
         return "systematic review"
     if any(token in normalized for token in ("guideline", "consensus", "recommendation", "statement")):
         return "guideline"
     if any(token in normalized for token in ("randomized", "trial", "placebo", "controlled")):
-        return "RCT"
-    if " after " in f" {normalized} " and any(
-        token in normalized for token in ("extension", "intervention", "protocol", "treatment")
-    ):
         return "RCT"
     if any(
         token in normalized
@@ -49,6 +51,7 @@ def _infer_reference_evidence_type(citation: str) -> str:
             "case-control",
             "observational",
             "patterns",
+            "adherence",
         )
     ):
         return "observational"
@@ -70,6 +73,7 @@ def _evidence_alignment(required: str, observed: str) -> str:
         ("RCT", "meta-analysis"),
         ("RCT", "systematic review"),
         ("observational", "systematic review"),
+        ("observational", "meta-analysis"),
     }
     if (required, observed) in compatible_pairs:
         return "MODERATE"

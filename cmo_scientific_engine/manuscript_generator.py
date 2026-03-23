@@ -12,6 +12,7 @@ Claim = Dict[str, Any]
 
 REQUIRED_STUDY_KEYS = ("study_id", "title", "domain", "objective")
 REQUIRED_FINDING_KEYS = ("finding_id", "raw_result", "uncertainty", "priority")
+FORBIDDEN_FINDING_KEYS = ("claim_text", "evidence_reference_ids")
 ALLOWED_EVIDENCE_NEEDED = (
     "RCT",
     "meta-analysis",
@@ -44,6 +45,7 @@ TESTABLE_MARKERS = (
     "throughput",
     "score",
 )
+PRIORITY_VALUES = {"primary", "secondary"}
 
 
 class InputValidationError(ValueError):
@@ -57,7 +59,7 @@ def _validate_study(study: Dict[str, Any]) -> None:
 
 
 def _finding_text(finding: Dict[str, Any]) -> str:
-    return finding["raw_result"].strip()
+    return re.sub(r"\s+", " ", finding["raw_result"].strip())
 
 
 def _normalized_uncertainty(finding: Dict[str, Any]) -> str:
@@ -86,15 +88,29 @@ def _validate_finding_text(finding: Dict[str, Any]) -> None:
 def _validate_findings(findings: List[Dict[str, Any]]) -> None:
     if not findings:
         raise InputValidationError("findings must be non-empty")
+
+    seen_finding_ids = set()
     for finding in findings:
         missing = [key for key in REQUIRED_FINDING_KEYS if key not in finding]
         if missing:
             raise InputValidationError(
                 f"finding {finding.get('finding_id', '<missing>')} missing keys: {missing}"
             )
-        if not finding["uncertainty"].strip():
+        forbidden = [key for key in FORBIDDEN_FINDING_KEYS if key in finding]
+        if forbidden:
             raise InputValidationError(
-                f"finding {finding['finding_id']} must include uncertainty"
+                f"finding {finding['finding_id']} contains deprecated keys: {forbidden}"
+            )
+        if finding["finding_id"] in seen_finding_ids:
+            raise InputValidationError(f"duplicate finding_id: {finding['finding_id']}")
+        seen_finding_ids.add(finding["finding_id"])
+        if _normalized_uncertainty(finding) not in {"low", "moderate", "high", "substantial", "exploratory"}:
+            raise InputValidationError(
+                f"finding {finding['finding_id']} uncertainty not supported"
+            )
+        if finding["priority"] not in PRIORITY_VALUES:
+            raise InputValidationError(
+                f"finding {finding['finding_id']} priority invalid"
             )
         _validate_finding_text(finding)
 
