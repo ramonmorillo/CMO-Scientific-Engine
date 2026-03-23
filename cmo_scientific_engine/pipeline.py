@@ -17,6 +17,7 @@ def run_pipeline(payload: Dict[str, Any]) -> PipelineResult:
     claims_json = generate_claims(payload)
     mapping_json = map_references(claims_json, payload.get("reference_library", []))
     audit_json = audit_claims(claims_json, mapping_json)
+    failing_checks = [item for item in audit_json["failed_checks"] if item["severity"] == "fail"]
 
     return {
         "study": claims_json["study"],
@@ -25,5 +26,5 @@ def run_pipeline(payload: Dict[str, Any]) -> PipelineResult:
         "audit_summary": audit_json["audit_summary"],
         "claim_audits": audit_json["claim_audits"],
         "failed_checks": audit_json["failed_checks"],
-        "pipeline_status": "pass" if not audit_json["failed_checks"] else "fail",
+        "pipeline_status": "pass" if not failing_checks else "fail",
     }

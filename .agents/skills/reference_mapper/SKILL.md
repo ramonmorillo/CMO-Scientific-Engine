@@ -12,6 +12,9 @@ description: Map scientific claims to supporting references using shared evidenc
 - Preserve claim order.
 - Emit JSON only.
 - Never fabricate a citation.
+- Infer reference evidence type from the supplied citation only.
+- Score each mapped reference with `evidence_match`: `HIGH`, `MODERATE`, or `LOW`.
+- If evidence type mismatches claim needs, keep the reference but flag the mismatch.
 
 ## Required Input Keys
 ```json
@@ -22,7 +25,8 @@ description: Map scientific claims to supporting references using shared evidenc
       "finding_ids": ["string"],
       "text": "string",
       "priority": "primary|secondary",
-      "evidence_reference_ids": ["string"]
+      "evidence_reference_ids": ["string"],
+      "evidence_needed": "string"
     }
   ],
   "reference_library": [
@@ -42,14 +46,17 @@ description: Map scientific claims to supporting references using shared evidenc
     {
       "claim_id": "string",
       "reference_ids": ["string"],
-      "citations": ["string"]
+      "citations": ["string"],
+      "evidence_match": ["HIGH|MODERATE|LOW"],
+      "mismatch_flags": ["none|partial_evidence_alignment|evidence_needed_mismatch"]
     }
   ],
-  "unmapped_claims": ["string"]
+  "unmapped_claims": ["string"],
+  "allowed_evidence_match": ["HIGH", "MODERATE", "LOW"]
 }
 ```
 
 ## JSON Rules
 - `claim_reference_map` must contain every claim exactly once.
-- `reference_ids` and `citations` must be aligned by index.
+- `reference_ids`, `citations`, `evidence_match`, and `mismatch_flags` must be aligned by index.
 - `unmapped_claims` must list claim IDs with zero mapped references.
