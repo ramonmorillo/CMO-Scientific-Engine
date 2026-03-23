@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Set
 
 Reference = Dict[str, Any]
 ALLOWED_EVIDENCE_MATCH = ("HIGH", "MODERATE", "LOW")
+ALLOWED_VERIFICATION_STATUS = ("verified", "unverified", "failed")
 REQUIRED_REFERENCE_KEYS = ("reference_id", "citation", "finding_ids")
 
 
@@ -64,6 +65,40 @@ def _citation_is_structured(citation: str) -> bool:
     return bool(re.search(r"\b(19|20)\d{2}\b", citation)) and ";" in citation and "." in citation
 
 
+def _normalized_reference_title(reference: Reference) -> str:
+    title = str(reference.get("title", "")).strip().lower()
+    if title:
+        return re.sub(r"\s+", " ", title)
+
+    citation = str(reference.get("citation", "")).strip()
+    parts = [segment.strip() for segment in citation.split(".") if segment.strip()]
+    if len(parts) >= 2:
+        return re.sub(r"\s+", " ", parts[1].lower())
+    return ""
+
+
+def _reference_verification_status(reference: Reference) -> str:
+    citation = str(reference.get("citation", "")).strip()
+    if not _citation_is_structured(citation):
+        return "failed"
+
+    trusted_identifier = any(
+        str(reference.get(key, "")).strip()
+        for key in ("doi", "pmid", "pmcid")
+    )
+    trusted_metadata = all(
+        str(reference.get(key, "")).strip()
+        for key in ("title", "journal", "year")
+    )
+    if trusted_identifier or trusted_metadata:
+        metadata_title = _normalized_reference_title(reference)
+        citation_title = _normalized_reference_title({"citation": citation})
+        if metadata_title and citation_title and metadata_title != citation_title:
+            return "failed"
+        return "verified"
+    return "unverified"
+
+
 def _evidence_alignment(required: str, observed: str) -> str:
     if required == observed:
         return "HIGH"
@@ -92,6 +127,7 @@ def map_references(claims_json: Dict[str, Any], reference_library: List[Referenc
         citations = []
         evidence_match = []
         mismatch_flags = []
+        reference_verification_status = []
         claim_finding_ids = set(claim["finding_ids"])
         evidence_needed = claim.get("evidence_needed", "observational")
         candidate_references = sorted(
@@ -107,15 +143,21 @@ def map_references(claims_json: Dict[str, Any], reference_library: List[Referenc
             citation = reference["citation"]
             observed_evidence = _infer_reference_evidence_type(citation)
             match = _evidence_alignment(evidence_needed, observed_evidence)
-            if not _citation_is_structured(citation):
+            verification_status = _reference_verification_status(reference)
+            if verification_status == "failed":
                 match = "LOW"
             reference_ids.append(reference["reference_id"])
             citations.append(citation)
             evidence_match.append(match)
-            if match == "LOW":
+            reference_verification_status.append(verification_status)
+            if verification_status == "failed":
+                mismatch_flags.append("reference_verification_failed")
+            elif match == "LOW":
                 mismatch_flags.append("evidence_needed_mismatch")
             elif match == "MODERATE":
                 mismatch_flags.append("partial_evidence_alignment")
+            elif verification_status == "unverified":
+                mismatch_flags.append("reference_unverified")
             else:
                 mismatch_flags.append("none")
 
@@ -128,6 +170,7 @@ def map_references(claims_json: Dict[str, Any], reference_library: List[Referenc
                 "reference_ids": reference_ids,
                 "citations": citations,
                 "evidence_match": evidence_match,
+                "reference_verification_status": reference_verification_status,
                 "mismatch_flags": mismatch_flags,
             }
         )
@@ -136,4 +179,5 @@ def map_references(claims_json: Dict[str, Any], reference_library: List[Referenc
         "claim_reference_map": claim_reference_map,
         "unmapped_claims": unmapped_claims,
         "allowed_evidence_match": list(ALLOWED_EVIDENCE_MATCH),
+        "allowed_reference_verification_status": list(ALLOWED_VERIFICATION_STATUS),
     }

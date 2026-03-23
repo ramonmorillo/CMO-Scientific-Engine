@@ -1,9 +1,9 @@
 {
   "study": {
-    "study_id": "STUDY-001",
-    "title": "Effects of Structured Sleep Extension on Cognitive Throughput",
     "domain": "clinical_research",
-    "objective": "Assess whether a six-week sleep extension protocol improves cognitive throughput in shift workers."
+    "objective": "Assess whether a six-week sleep extension protocol improves cognitive throughput in shift workers.",
+    "study_id": "STUDY-001",
+    "title": "Effects of Structured Sleep Extension on Cognitive Throughput"
   },
   "claims": [
     {
@@ -11,10 +11,11 @@
       "finding_ids": [
         "FND-001"
       ],
-      "text": "Sleep extension increased median cognitive throughput by 14 percent after six weeks.",
+      "text": "Sleep extension was associated with an increase in median cognitive throughput by 14 percent after six weeks.",
       "priority": "primary",
+      "uncertainty": "moderate",
       "evidence_needed": "RCT",
-      "justification": "Intervention effect claims need controlled causal evidence."
+      "justification": "Causal objective stated, but design details need confirmation."
     },
     {
       "claim_id": "CLM-002",
@@ -23,6 +24,7 @@
       ],
       "text": "Protocol adherence remained above 90 percent throughout the intervention period.",
       "priority": "secondary",
+      "uncertainty": "low",
       "evidence_needed": "observational",
       "justification": "Behavior or association claims need real-world follow-up evidence."
     }
@@ -39,8 +41,11 @@
       "evidence_match": [
         "HIGH"
       ],
+      "reference_verification_status": [
+        "unverified"
+      ],
       "mismatch_flags": [
-        "none"
+        "reference_unverified"
       ]
     },
     {
@@ -54,49 +59,89 @@
       "evidence_match": [
         "HIGH"
       ],
+      "reference_verification_status": [
+        "unverified"
+      ],
       "mismatch_flags": [
-        "none"
+        "reference_unverified"
       ]
     }
   ],
   "audit_summary": {
     "total_claims": 2,
-    "passed_claims": 2,
-    "failed_claims": 0,
-    "high_quality_evidence_pct": 100.0,
-    "weakly_supported_pct": 0.0,
-    "scientific_reliability_score": 100.0
+    "passed_claims": 0,
+    "failed_claims": 2,
+    "high_quality_evidence_pct": 0.0,
+    "weakly_supported_pct": 100.0,
+    "scientific_reliability_score": 22.0
   },
   "claim_audits": [
     {
       "claim_id": "CLM-001",
-      "status": "pass",
+      "status": "fail",
       "checks": [
         "has_findings",
         "has_references",
         "references_mapped_from_finding_overlap",
-        "scientific_support_high"
+        "scientific_support_high",
+        "reference_verification_incomplete",
+        "methodology_incomplete"
       ],
-      "evidence_level_ok": "YES",
+      "evidence_level_ok": "NO",
       "direct_support": "YES",
-      "risk_of_bias": "LOW",
-      "overclaiming": "NO"
+      "risk_of_bias": "MODERATE",
+      "overclaiming": "NO",
+      "support_confidence": "UNCERTAIN"
     },
     {
       "claim_id": "CLM-002",
-      "status": "pass",
+      "status": "fail",
       "checks": [
         "has_findings",
         "has_references",
         "references_mapped_from_finding_overlap",
-        "scientific_support_high"
+        "scientific_support_high",
+        "reference_verification_incomplete",
+        "methodology_incomplete"
       ],
-      "evidence_level_ok": "YES",
+      "evidence_level_ok": "NO",
       "direct_support": "YES",
       "risk_of_bias": "MODERATE",
-      "overclaiming": "NO"
+      "overclaiming": "NO",
+      "support_confidence": "UNCERTAIN"
     }
   ],
-  "failed_checks": [],
-  "pipeline_status": "pass"
+  "failed_checks": [
+    {
+      "claim_id": "CLM-001",
+      "code": "reference_unverified",
+      "detail": "reference_metadata_insufficient_for_independent_verification",
+      "severity": "warning"
+    },
+    {
+      "claim_id": "CLM-001",
+      "code": "methodology_incomplete",
+      "detail": "missing_design_details_comparator_sample_size_justification_confidence_interval",
+      "severity": "warning"
+    },
+    {
+      "claim_id": "CLM-002",
+      "code": "reference_unverified",
+      "detail": "reference_metadata_insufficient_for_independent_verification",
+      "severity": "warning"
+    },
+    {
+      "claim_id": "CLM-002",
+      "code": "methodology_incomplete",
+      "detail": "missing_design_details_comparator_sample_size_justification_confidence_interval",
+      "severity": "warning"
+    },
+    {
+      "claim_id": "GLOBAL",
+      "code": "weak_support_threshold",
+      "detail": "weakly_supported_claims_exceed_30_percent",
+      "severity": "fail"
+    }
+  ],
+  "pipeline_status": "fail"
 }
