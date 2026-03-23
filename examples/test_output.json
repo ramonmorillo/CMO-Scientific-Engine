@@ -15,7 +15,9 @@
       "priority": "primary",
       "evidence_reference_ids": [
         "REF-001"
-      ]
+      ],
+      "evidence_needed": "RCT",
+      "justification": "Intervention effect claims need controlled causal evidence."
     },
     {
       "claim_id": "CLM-002",
@@ -26,7 +28,9 @@
       "priority": "secondary",
       "evidence_reference_ids": [
         "REF-002"
-      ]
+      ],
+      "evidence_needed": "observational",
+      "justification": "Behavior or association claims need real-world follow-up evidence."
     }
   ],
   "claim_reference_map": [
@@ -37,6 +41,12 @@
       ],
       "citations": [
         "Navarro L, Singh P. Cognitive throughput after sleep extension. J Sleep Metrics. 2025;12(4):201-210."
+      ],
+      "evidence_match": [
+        "HIGH"
+      ],
+      "mismatch_flags": [
+        "none"
       ]
     },
     {
@@ -46,13 +56,22 @@
       ],
       "citations": [
         "Ito R, Hale M. Adherence patterns in behavioral sleep interventions. Clin Protocols. 2024;8(1):44-51."
+      ],
+      "evidence_match": [
+        "HIGH"
+      ],
+      "mismatch_flags": [
+        "none"
       ]
     }
   ],
   "audit_summary": {
     "total_claims": 2,
     "passed_claims": 2,
-    "failed_claims": 0
+    "failed_claims": 0,
+    "high_quality_evidence_pct": 100.0,
+    "weakly_supported_pct": 0.0,
+    "scientific_reliability_score": 100.0
   },
   "claim_audits": [
     {
@@ -62,7 +81,11 @@
         "has_findings",
         "has_references",
         "reference_ids_match_evidence_ids"
-      ]
+      ],
+      "evidence_level_ok": "YES",
+      "direct_support": "YES",
+      "risk_of_bias": "LOW",
+      "overclaiming": "NO"
     },
     {
       "claim_id": "CLM-002",
@@ -71,7 +94,11 @@
         "has_findings",
         "has_references",
         "reference_ids_match_evidence_ids"
-      ]
+      ],
+      "evidence_level_ok": "YES",
+      "direct_support": "YES",
+      "risk_of_bias": "MODERATE",
+      "overclaiming": "NO"
     }
   ],
   "failed_checks": [],

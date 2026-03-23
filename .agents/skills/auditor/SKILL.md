@@ -7,11 +7,13 @@ description: Audit claim-to-reference consistency for the final validation step 
 
 ## Instructions
 - Read claims JSON and reference mapping JSON.
-- Validate claim IDs, finding IDs, and reference IDs.
+- Validate claim IDs, finding IDs, reference IDs, and orphan-reference conditions.
+- Review each claim as a scientific reviewer, not only a structural validator.
 - Fail any claim missing mapped references.
 - Fail any mapping that points to an unknown claim.
 - Emit JSON only.
 - Keep failure reasons short and enumerable.
+- Distinguish `severity` as `fail` or `warning`.
 
 ## Required Input Keys
 ```json
@@ -20,13 +22,17 @@ description: Audit claim-to-reference consistency for the final validation step 
     {
       "claim_id": "string",
       "finding_ids": ["string"],
-      "evidence_reference_ids": ["string"]
+      "evidence_reference_ids": ["string"],
+      "evidence_needed": "string",
+      "text": "string"
     }
   ],
   "claim_reference_map": [
     {
       "claim_id": "string",
-      "reference_ids": ["string"]
+      "reference_ids": ["string"],
+      "evidence_match": ["HIGH|MODERATE|LOW"],
+      "mismatch_flags": ["string"]
     }
   ]
 }
@@ -38,20 +44,28 @@ description: Audit claim-to-reference consistency for the final validation step 
   "audit_summary": {
     "total_claims": 0,
     "passed_claims": 0,
-    "failed_claims": 0
+    "failed_claims": 0,
+    "high_quality_evidence_pct": 0.0,
+    "weakly_supported_pct": 0.0,
+    "scientific_reliability_score": 0.0
   },
   "claim_audits": [
     {
       "claim_id": "string",
       "status": "pass|fail",
-      "checks": ["has_findings", "has_references", "reference_ids_match_evidence_ids"]
+      "checks": ["string"],
+      "evidence_level_ok": "YES|NO",
+      "direct_support": "YES|NO",
+      "risk_of_bias": "LOW|MODERATE|HIGH",
+      "overclaiming": "YES|NO"
     }
   ],
   "failed_checks": [
     {
       "claim_id": "string",
       "code": "string",
-      "detail": "string"
+      "detail": "string",
+      "severity": "fail|warning"
     }
   ]
 }
@@ -59,5 +73,7 @@ description: Audit claim-to-reference consistency for the final validation step 
 
 ## JSON Rules
 - `checks` must contain only machine-readable tokens.
-- `failed_checks` must be empty when all claims pass.
+- `failed_checks` must be empty only when all claims pass with no warnings.
 - `audit_summary` counts must match `claim_audits` exactly.
+- Fail the pipeline if references are missing or if weakly supported claims exceed 30%.
+- Emit a warning, not a fail, for evidence mismatches unless another fail condition applies.

@@ -9,7 +9,10 @@ description: Generate structured scientific manuscript claims JSON from study me
 - Read structured study input only.
 - Generate one claim per finding unless two findings are exact duplicates.
 - Preserve source identifiers exactly.
-- Keep claims concise, factual, and publication-ready.
+- Keep claims concise, factual, publication-ready, and testable.
+- Reject generic claim text lacking measurable or defendable anchors.
+- Infer `evidence_needed` using only: `RCT`, `meta-analysis`, `systematic review`, `observational`, `guideline`, `conceptual`.
+- Add a short `justification` explaining why that evidence is required.
 - Do not invent statistics, cohorts, p-values, outcomes, or references.
 - Emit JSON only.
 
@@ -49,12 +52,15 @@ description: Generate structured scientific manuscript claims JSON from study me
       "finding_ids": ["string"],
       "text": "string",
       "priority": "primary|secondary",
-      "evidence_reference_ids": ["string"]
+      "evidence_reference_ids": ["string"],
+      "evidence_needed": "RCT|meta-analysis|systematic review|observational|guideline|conceptual",
+      "justification": "string"
     }
   ],
   "generation_notes": {
     "claim_count": 0,
-    "deduplicated_findings": []
+    "deduplicated_findings": [],
+    "allowed_evidence_needed": []
   }
 }
 ```
@@ -63,4 +69,5 @@ description: Generate structured scientific manuscript claims JSON from study me
 - `claim_id` must be sequential in the emitted order.
 - `finding_ids` must be non-empty.
 - `evidence_reference_ids` must mirror the source finding.
+- `justification` should stay below 20 words where possible.
 - `generation_notes` must stay machine-readable; do not add prose.
