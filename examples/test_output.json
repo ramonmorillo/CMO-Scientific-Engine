@@ -1,0 +1,79 @@
+{
+  "study": {
+    "study_id": "STUDY-001",
+    "title": "Effects of Structured Sleep Extension on Cognitive Throughput",
+    "domain": "clinical_research",
+    "objective": "Assess whether a six-week sleep extension protocol improves cognitive throughput in shift workers."
+  },
+  "claims": [
+    {
+      "claim_id": "CLM-001",
+      "finding_ids": [
+        "FND-001"
+      ],
+      "text": "Sleep extension increased median cognitive throughput by 14 percent after six weeks.",
+      "priority": "primary",
+      "evidence_reference_ids": [
+        "REF-001"
+      ]
+    },
+    {
+      "claim_id": "CLM-002",
+      "finding_ids": [
+        "FND-002"
+      ],
+      "text": "Protocol adherence remained above 90 percent throughout the intervention period.",
+      "priority": "secondary",
+      "evidence_reference_ids": [
+        "REF-002"
+      ]
+    }
+  ],
+  "claim_reference_map": [
+    {
+      "claim_id": "CLM-001",
+      "reference_ids": [
+        "REF-001"
+      ],
+      "citations": [
+        "Navarro L, Singh P. Cognitive throughput after sleep extension. J Sleep Metrics. 2025;12(4):201-210."
+      ]
+    },
+    {
+      "claim_id": "CLM-002",
+      "reference_ids": [
+        "REF-002"
+      ],
+      "citations": [
+        "Ito R, Hale M. Adherence patterns in behavioral sleep interventions. Clin Protocols. 2024;8(1):44-51."
+      ]
+    }
+  ],
+  "audit_summary": {
+    "total_claims": 2,
+    "passed_claims": 2,
+    "failed_claims": 0
+  },
+  "claim_audits": [
+    {
+      "claim_id": "CLM-001",
+      "status": "pass",
+      "checks": [
+        "has_findings",
+        "has_references",
+        "reference_ids_match_evidence_ids"
+      ]
+    },
+    {
+      "claim_id": "CLM-002",
+      "status": "pass",
+      "checks": [
+        "has_findings",
+        "has_references",
+        "reference_ids_match_evidence_ids"
+      ]
+    }
+  ],
+  "failed_checks": [],
+  "pipeline_status": "pass"
+}
