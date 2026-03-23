@@ -7,7 +7,7 @@ description: Audit claim-to-reference consistency for the final validation step 
 
 ## Instructions
 - Read claims JSON and reference mapping JSON.
-- Validate claim IDs, finding IDs, reference IDs, and orphan-reference conditions.
+- Validate claim IDs, finding IDs, mapped reference IDs, and evidence-support conditions.
 - Review each claim as a scientific reviewer, not only a structural validator.
 - Fail any claim missing mapped references.
 - Fail any mapping that points to an unknown claim.
@@ -22,7 +22,6 @@ description: Audit claim-to-reference consistency for the final validation step 
     {
       "claim_id": "string",
       "finding_ids": ["string"],
-      "evidence_reference_ids": ["string"],
       "evidence_needed": "string",
       "text": "string"
     }
@@ -77,3 +76,4 @@ description: Audit claim-to-reference consistency for the final validation step 
 - `audit_summary` counts must match `claim_audits` exactly.
 - Fail the pipeline if references are missing or if weakly supported claims exceed 30%.
 - Emit a warning, not a fail, for evidence mismatches unless another fail condition applies.
+- Do not expect claim-level reference IDs; audit mapped evidence only.

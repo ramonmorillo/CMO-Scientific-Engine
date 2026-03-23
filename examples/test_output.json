@@ -13,9 +13,6 @@
       ],
       "text": "Sleep extension increased median cognitive throughput by 14 percent after six weeks.",
       "priority": "primary",
-      "evidence_reference_ids": [
-        "REF-001"
-      ],
       "evidence_needed": "RCT",
       "justification": "Intervention effect claims need controlled causal evidence."
     },
@@ -26,9 +23,6 @@
       ],
       "text": "Protocol adherence remained above 90 percent throughout the intervention period.",
       "priority": "secondary",
-      "evidence_reference_ids": [
-        "REF-002"
-      ],
       "evidence_needed": "observational",
       "justification": "Behavior or association claims need real-world follow-up evidence."
     }
@@ -40,7 +34,7 @@
         "REF-001"
       ],
       "citations": [
-        "Navarro L, Singh P. Cognitive throughput after sleep extension. J Sleep Metrics. 2025;12(4):201-210."
+        "Navarro L, Singh P. Randomized trial of cognitive throughput after sleep extension. J Sleep Metrics. 2025;12(4):201-210."
       ],
       "evidence_match": [
         "HIGH"
@@ -80,7 +74,7 @@
       "checks": [
         "has_findings",
         "has_references",
-        "reference_ids_match_evidence_ids"
+        "references_mapped_from_finding_overlap"
       ],
       "evidence_level_ok": "YES",
       "direct_support": "YES",
@@ -93,7 +87,7 @@
       "checks": [
         "has_findings",
         "has_references",
-        "reference_ids_match_evidence_ids"
+        "references_mapped_from_finding_overlap"
       ],
       "evidence_level_ok": "YES",
       "direct_support": "YES",

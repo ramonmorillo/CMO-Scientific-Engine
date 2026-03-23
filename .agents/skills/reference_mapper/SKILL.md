@@ -1,6 +1,6 @@
 ---
 name: reference_mapper
-description: Map scientific claims to supporting references using shared evidence identifiers. Use when Codex needs the second step of the CMO Scientific Engine pipeline: attaching deterministic reference objects to claims without adding unsupported citations.
+description: Map scientific claims to supporting references using finding overlap. Use when Codex needs the second step of the CMO Scientific Engine pipeline: attaching deterministic reference objects to claims without adding unsupported citations.
 ---
 
 # reference_mapper
@@ -8,7 +8,8 @@ description: Map scientific claims to supporting references using shared evidenc
 ## Instructions
 - Read claims JSON from `manuscript_generator`.
 - Read `reference_library` from the source input.
-- Map a reference to a claim only if the reference ID exists in that claim's `evidence_reference_ids`.
+- Map references independently from source findings; do not rely on claim-level reference IDs.
+- Attach a reference only when its `finding_ids` overlap the claim's `finding_ids`.
 - Preserve claim order.
 - Emit JSON only.
 - Never fabricate a citation.
@@ -25,7 +26,6 @@ description: Map scientific claims to supporting references using shared evidenc
       "finding_ids": ["string"],
       "text": "string",
       "priority": "primary|secondary",
-      "evidence_reference_ids": ["string"],
       "evidence_needed": "string"
     }
   ],
@@ -60,3 +60,4 @@ description: Map scientific claims to supporting references using shared evidenc
 - `claim_reference_map` must contain every claim exactly once.
 - `reference_ids`, `citations`, `evidence_match`, and `mismatch_flags` must be aligned by index.
 - `unmapped_claims` must list claim IDs with zero mapped references.
+- Mapping order must be deterministic; sort references by `reference_id` when multiple overlap.
