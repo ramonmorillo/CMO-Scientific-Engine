@@ -1,0 +1,34 @@
+{
+  "study": {
+    "study_id": "STUDY-001",
+    "title": "Effects of Structured Sleep Extension on Cognitive Throughput",
+    "domain": "clinical_research",
+    "objective": "Assess whether a six-week sleep extension protocol improves cognitive throughput in shift workers."
+  },
+  "findings": [
+    {
+      "finding_id": "FND-001",
+      "claim_text": "Sleep extension increased median cognitive throughput by 14 percent after six weeks.",
+      "evidence_reference_ids": ["REF-001"],
+      "priority": "primary"
+    },
+    {
+      "finding_id": "FND-002",
+      "claim_text": "Protocol adherence remained above 90 percent throughout the intervention period.",
+      "evidence_reference_ids": ["REF-002"],
+      "priority": "secondary"
+    }
+  ],
+  "reference_library": [
+    {
+      "reference_id": "REF-001",
+      "citation": "Navarro L, Singh P. Cognitive throughput after sleep extension. J Sleep Metrics. 2025;12(4):201-210.",
+      "finding_ids": ["FND-001"]
+    },
+    {
+      "reference_id": "REF-002",
+      "citation": "Ito R, Hale M. Adherence patterns in behavioral sleep interventions. Clin Protocols. 2024;8(1):44-51.",
+      "finding_ids": ["FND-002"]
+    }
+  ]
+}
