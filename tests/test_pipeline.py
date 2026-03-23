@@ -12,6 +12,9 @@ from cmo_scientific_engine import run_pipeline
 class PipelineTests(unittest.TestCase):
     def test_pipeline_passes_on_example_input(self) -> None:
         payload = json.loads(Path("examples/test_input.json").read_text())
+        self.assertNotIn("claim_text", payload["findings"][0])
+        self.assertNotIn("evidence_reference_ids", payload["findings"][0])
+
         result = run_pipeline(payload)
 
         self.assertEqual(result["pipeline_status"], "pass")
@@ -40,9 +43,22 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(mapped_items["CLM-001"]["reference_ids"], ["REF-001", "REF-003"])
         self.assertEqual(mapped_items["CLM-001"]["evidence_match"], ["HIGH", "MODERATE"])
-        self.assertEqual(mapped_items["CLM-001"]["mismatch_flags"], ["none", "partial_evidence_alignment"])
+        self.assertEqual(
+            mapped_items["CLM-001"]["mismatch_flags"],
+            ["none", "partial_evidence_alignment"],
+        )
         self.assertEqual(mapped_items["CLM-002"]["reference_ids"], ["REF-002"])
         self.assertEqual(mapped_items["CLM-002"]["mismatch_flags"], ["none"])
+        self.assertIn(
+            {
+                "claim_id": "CLM-001",
+                "code": "partial_evidence_alignment",
+                "detail": "mapped_reference_partially_matches_needed_evidence",
+                "severity": "warning",
+            },
+            result["failed_checks"],
+        )
+        self.assertEqual(result["pipeline_status"], "pass")
 
     def test_pipeline_fails_when_weak_support_exceeds_threshold(self) -> None:
         payload = json.loads(Path("examples/test_input.json").read_text())
@@ -62,6 +78,13 @@ class PipelineTests(unittest.TestCase):
             },
             result["failed_checks"],
         )
+
+    def test_generator_rejects_deprecated_finding_claim_fields(self) -> None:
+        payload = json.loads(Path("examples/test_input.json").read_text())
+        payload["findings"][0]["claim_text"] = "Deprecated claim"
+
+        with self.assertRaisesRegex(ValueError, "deprecated keys"):
+            run_pipeline(payload)
 
 
 if __name__ == "__main__":
