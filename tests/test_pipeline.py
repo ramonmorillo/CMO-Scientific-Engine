@@ -6,6 +6,7 @@ import copy
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from cmo_scientific_engine import run_pipeline
 from cmo_scientific_engine.auditor import audit_claims
@@ -178,6 +179,60 @@ class PipelineTests(unittest.TestCase):
             ["FAILED"],
         )
         self.assertLessEqual(result["audit_summary"]["scientific_reliability_score"], 50.0)
+
+    def test_pubmed_api_unavailable_is_treated_differently_than_not_found(self) -> None:
+        payload = self._example_payload()
+        payload["enable_pubmed_verifier"] = True
+
+        with patch(
+            "cmo_scientific_engine.pubmed_verifier.verify_citation",
+            return_value={
+                "query": "12345[PMID]",
+                "match_status": "not_found",
+                "pmid": None,
+                "title": None,
+                "journal": None,
+                "year": None,
+                "doi": None,
+            },
+        ):
+            not_found_result = run_pipeline(copy.deepcopy(payload))
+
+        with patch(
+            "cmo_scientific_engine.pubmed_verifier.verify_citation",
+            return_value={
+                "query": "12345[PMID]",
+                "match_status": "api_unavailable",
+                "pmid": None,
+                "title": None,
+                "journal": None,
+                "year": None,
+                "doi": None,
+                "verification_status": "deferred",
+                "error_class": "network_or_proxy",
+            },
+        ):
+            api_unavailable_result = run_pipeline(copy.deepcopy(payload))
+
+        self.assertEqual(
+            not_found_result["claim_reference_map"][0]["reference_verification_status"],
+            ["FAILED"],
+        )
+        self.assertEqual(
+            api_unavailable_result["claim_reference_map"][0]["reference_verification_status"],
+            ["UNVERIFIED"],
+        )
+        not_found_checks = {
+            (item["claim_id"], item["code"])
+            for item in not_found_result["failed_checks"]
+        }
+        api_unavailable_checks = {
+            (item["claim_id"], item["code"])
+            for item in api_unavailable_result["failed_checks"]
+        }
+        self.assertIn(("CLM-001", "reference_verification_failed"), not_found_checks)
+        self.assertNotIn(("CLM-001", "reference_verification_failed"), api_unavailable_checks)
+        self.assertIn(("CLM-001", "unverified_reference"), api_unavailable_checks)
 
     def test_auditor_rewrites_overclaiming_without_confirmed_rct(self) -> None:
         claims_json = {
