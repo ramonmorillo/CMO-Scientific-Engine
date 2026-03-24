@@ -23,9 +23,11 @@ class OriginalArticleGeneratorTests(unittest.TestCase):
         result = generate_original_article(text)
 
         self.assertEqual(result["article_type"], "original_article")
-        self.assertIn("Este estudio", result["sections"]["introduction"])
+        self.assertIn("Objetivo:", result["sections"]["introduction"])
+        self.assertIn("Diseño:", result["sections"]["methods"])
         self.assertTrue(result["claims"])
-        self.assertEqual(result["claims"][0]["section"], "results")
+        self.assertEqual(result["claims"][0]["section"], "introduction")
+        self.assertIn("Resultados", result["sections"]["results"])
         self.assertIn(result["claims"][0]["certainty"], {"high", "moderate", "low", "uncertain"})
 
     def test_warns_when_strategy_recommends_non_original(self) -> None:
@@ -47,7 +49,8 @@ class OriginalArticleGeneratorTests(unittest.TestCase):
 
         result = generate_original_article(text)
 
-        self.assertIn("Methods are incomplete", result["sections"]["methods"])
+        self.assertIn("Design:", result["sections"]["methods"])
+        self.assertIn("missing in input", result["sections"]["methods"])
         self.assertIn("study.design", result["missing_elements"])
         self.assertIn("Methods section is incomplete", result["warnings"])
 
@@ -60,7 +63,11 @@ class OriginalArticleGeneratorTests(unittest.TestCase):
         result = generate_original_article(text, free_text_ingest_output=structured)
 
         self.assertEqual(result["title"], structured["study"]["title"] or "Original article draft")
-        self.assertEqual(len(result["claims"]), len(structured["findings"]))
+        result_sections = {claim["section"] for claim in result["claims"]}
+        self.assertIn("introduction", result_sections)
+        self.assertIn("methods", result_sections)
+        self.assertIn("discussion", result_sections)
+        self.assertGreaterEqual(len(result["claims"]), len(structured["findings"]))
 
     def test_cli_entrypoint_outputs_json(self) -> None:
         cmd = [

@@ -84,99 +84,250 @@ def _cautious_result_text(raw_result: str, language: str) -> str:
     return text
 
 
-def _build_sections(study: Dict[str, Any], findings: List[Dict[str, Any]], language: str) -> Dict[str, str]:
+def _extract_fragment(text: str, patterns: tuple[str, ...]) -> Optional[str]:
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            fragment = re.sub(r"\s+", " ", match.group(1)).strip(" .;:")
+            if fragment:
+                return fragment
+    return None
+
+
+def _methods_components(text: str, study: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    intervention = _extract_fragment(
+        normalized,
+        (
+            r"(?:intervention|exposure)\s*[:\-]\s*([^\.;]+)",
+            r"(?:intervenci[oó]n|exposici[oó]n)\s*[:\-]\s*([^\.;]+)",
+            r"(?:participants received|subjects received)\s+([^\.;]+)",
+            r"(?:los participantes recibieron)\s+([^\.;]+)",
+        ),
+    )
+    comparator = _extract_fragment(
+        normalized,
+        (
+            r"(?:comparator|control|comparison)\s*[:\-]\s*([^\.;]+)",
+            r"(?:comparador|control|comparaci[oó]n)\s*[:\-]\s*([^\.;]+)",
+            r"(?:compared with|versus)\s+([^\.;]+)",
+            r"(?:comparado con|frente a)\s+([^\.;]+)",
+        ),
+    )
+    outcomes = _extract_fragment(
+        normalized,
+        (
+            r"(?:primary outcome|primary endpoint|outcome)\s*[:\-]\s*([^\.;]+)",
+            r"(?:resultado principal|variable principal|desenlace principal)\s*[:\-]\s*([^\.;]+)",
+            r"(?:secondary outcome|secondary endpoint)\s*[:\-]\s*([^\.;]+)",
+            r"(?:resultado secundario|desenlace secundario)\s*[:\-]\s*([^\.;]+)",
+        ),
+    )
+    analysis = _extract_fragment(
+        normalized,
+        (
+            r"(?:analysis|statistical analysis)\s*[:\-]\s*([^\.;]+)",
+            r"(?:an[aá]lisis|an[aá]lisis estad[ií]stico)\s*[:\-]\s*([^\.;]+)",
+            r"(?:using|with)\s+(regression|anova|t-test|cox model|kaplan[- ]meier|chi[- ]square)",
+            r"(?:mediante|con)\s+(regresi[oó]n|anova|prueba t|modelo de cox|kaplan[- ]meier|chi[- ]cuadrado)",
+        ),
+    )
+    return {
+        "design": study.get("design"),
+        "population": study.get("population"),
+        "intervention/exposure": intervention,
+        "comparator": comparator,
+        "duration": study.get("duration"),
+        "outcomes": outcomes,
+        "analysis": analysis,
+    }
+
+
+def _build_sections(text: str, study: Dict[str, Any], findings: List[Dict[str, Any]], language: str) -> Dict[str, str]:
     objective = study.get("objective")
-    design = study.get("design")
-    population = study.get("population")
-    duration = study.get("duration")
+    methods = _methods_components(text, study)
+    missing_methods = [key for key, value in methods.items() if not value]
+    background = _extract_fragment(
+        text,
+        (
+            r"(?:background|context)\s*[:\-]\s*([^\n\.]+)",
+            r"(?:antecedentes|contexto)\s*[:\-]\s*([^\n\.]+)",
+        ),
+    )
+    rationale = _extract_fragment(
+        text,
+        (
+            r"(?:rationale|justification)\s*[:\-]\s*([^\n\.]+)",
+            r"(?:justificaci[oó]n|fundamento)\s*[:\-]\s*([^\n\.]+)",
+        ),
+    )
 
     if language == "es":
-        intro = (
-            f"Este estudio evaluó {objective}."
-            if objective
-            else "Este borrador requiere un objetivo explícito para contextualizar el estudio."
-        )
-        method_bits = []
-        if design:
-            method_bits.append(f"Diseño reportado: {design}.")
-        if population:
-            method_bits.append(f"Población reportada: {population}.")
-        if duration:
-            method_bits.append(f"Duración reportada: {duration}.")
-        if not method_bits:
-            method_bits.append("Métodos incompletos: faltan diseño, población y duración.")
-        elif not all([design, population, duration]):
-            method_bits.append("Métodos incompletos: algunos componentes no fueron proporcionados.")
+        intro_parts = [
+            f"Antecedentes: {background}." if background else "Antecedentes: no reportados en la entrada.",
+            f"Justificación: {rationale}." if rationale else "Justificación: no reportada en la entrada.",
+            f"Objetivo: {objective}." if objective else "Objetivo: no reportado en la entrada.",
+        ]
+
+        labels = {
+            "design": "Diseño",
+            "population": "Población",
+            "intervention/exposure": "Intervención/exposición",
+            "comparator": "Comparador",
+            "duration": "Duración",
+            "outcomes": "Desenlaces",
+            "analysis": "Análisis",
+        }
+        method_bits = [
+            f"{labels[name]}: {value if value else 'faltante en la entrada'}."
+            for name, value in methods.items()
+        ]
+        if missing_methods:
+            method_bits.append(f"Componentes faltantes explícitos: {', '.join(missing_methods)}.")
 
         if findings:
-            results_lines = [f"Hallazgo {idx + 1}: {_cautious_result_text(item['raw_result'], language)}." for idx, item in enumerate(findings)]
-            results = " ".join(results_lines)
+            primary = [_cautious_result_text(item["raw_result"], language) for item in findings if item.get("priority") == "primary"]
+            secondary = [_cautious_result_text(item["raw_result"], language) for item in findings if item.get("priority") == "secondary"]
+            unknown = [_cautious_result_text(item["raw_result"], language) for item in findings if item.get("priority") == "unknown"]
+            result_bits = []
+            if primary:
+                result_bits.append("Resultados primarios: " + " ".join(f"{line}." for line in primary))
+            if secondary:
+                result_bits.append("Resultados secundarios: " + " ".join(f"{line}." for line in secondary))
+            if unknown:
+                result_bits.append("Resultados adicionales: " + " ".join(f"{line}." for line in unknown))
+            results = " ".join(result_bits)
         else:
             results = "No se proporcionaron hallazgos cuantificables para la sección de resultados."
 
         discussion = (
-            "Resultados demostrados: solo se reportan hallazgos textuales proporcionados. "
-            "Interpretación: la relevancia clínica requiere validación adicional."
+            "Interpretación principal: la evidencia se limita a hallazgos textuales provistos. "
+            "Incertidumbre y limitaciones: faltan componentes metodológicos y validación externa. "
+            "Posible relevancia: utilidad potencial sujeta a confirmación independiente."
         )
         return {
-            "introduction": intro,
+            "introduction": " ".join(intro_parts),
             "methods": " ".join(method_bits),
             "results": results,
             "discussion": discussion,
         }
 
-    intro = (
-        f"This study evaluated {objective}."
-        if objective
-        else "This draft needs an explicit objective to contextualize the study."
-    )
-    method_bits = []
-    if design:
-        method_bits.append(f"Reported design: {design}.")
-    if population:
-        method_bits.append(f"Reported population: {population}.")
-    if duration:
-        method_bits.append(f"Reported duration: {duration}.")
-    if not method_bits:
-        method_bits.append("Methods are incomplete: design, population, and duration are missing.")
-    elif not all([design, population, duration]):
-        method_bits.append("Methods are incomplete: some components were not provided.")
+    intro_parts = [
+        f"Background: {background}." if background else "Background: not reported in input.",
+        f"Rationale: {rationale}." if rationale else "Rationale: not reported in input.",
+        f"Objective: {objective}." if objective else "Objective: not reported in input.",
+    ]
+    labels = {
+        "design": "Design",
+        "population": "Population",
+        "intervention/exposure": "Intervention/exposure",
+        "comparator": "Comparator",
+        "duration": "Duration",
+        "outcomes": "Outcomes",
+        "analysis": "Analysis",
+    }
+    method_bits = [f"{labels[name]}: {value if value else 'missing in input'}." for name, value in methods.items()]
+    if missing_methods:
+        method_bits.append(f"Explicitly missing components: {', '.join(missing_methods)}.")
 
     if findings:
-        results_lines = [f"Finding {idx + 1}: {_cautious_result_text(item['raw_result'], language)}." for idx, item in enumerate(findings)]
-        results = " ".join(results_lines)
+        primary = [_cautious_result_text(item["raw_result"], language) for item in findings if item.get("priority") == "primary"]
+        secondary = [_cautious_result_text(item["raw_result"], language) for item in findings if item.get("priority") == "secondary"]
+        unknown = [_cautious_result_text(item["raw_result"], language) for item in findings if item.get("priority") == "unknown"]
+        result_bits = []
+        if primary:
+            result_bits.append("Primary findings: " + " ".join(f"{line}." for line in primary))
+        if secondary:
+            result_bits.append("Secondary findings: " + " ".join(f"{line}." for line in secondary))
+        if unknown:
+            result_bits.append("Additional findings: " + " ".join(f"{line}." for line in unknown))
+        results = " ".join(result_bits)
     else:
         results = "No quantifiable findings were provided for the results section."
 
     discussion = (
-        "Demonstrated results: only provided textual findings are reported. "
-        "Interpretation: clinical relevance requires additional validation."
+        "Principal interpretation: evidence is limited to provided textual findings. "
+        "Uncertainty and limitations: missing method components and external corroboration remain. "
+        "Possible relevance: findings may inform hypotheses pending independent confirmation."
     )
     return {
-        "introduction": intro,
+        "introduction": " ".join(intro_parts),
         "methods": " ".join(method_bits),
         "results": results,
         "discussion": discussion,
     }
 
 
-def _build_claims(findings: List[Dict[str, Any]], language: str) -> List[Dict[str, str]]:
-    claims = []
-    for idx, finding in enumerate(findings):
-        text = _cautious_result_text(str(finding.get("raw_result", "")), language)
-        if language == "es":
-            evidence_needed = "Confirmación con detalles metodológicos y replicación independiente"
-        else:
-            evidence_needed = "Method detail confirmation and independent replication"
+def _build_claims(text: str, study: Dict[str, Any], findings: List[Dict[str, Any]], language: str) -> List[Dict[str, str]]:
+    methods = _methods_components(text, study)
+    claims: List[Dict[str, str]] = []
+
+    def _append_claim(section: str, text_value: str, evidence_needed: str, certainty: str) -> None:
         claims.append(
             {
-                "claim_id": f"CLM-{idx + 1:03d}",
-                "text": text,
-                "section": "results",
+                "claim_id": f"CLM-{len(claims) + 1:03d}",
+                "text": text_value,
+                "section": section,
                 "evidence_needed": evidence_needed,
-                "certainty": _certainty_from_uncertainty(str(finding.get("uncertainty", "unknown"))),
+                "certainty": certainty,
             }
         )
+
+    if language == "es":
+        _append_claim(
+            "introduction",
+            f"Objetivo declarado: {study.get('objective')}" if study.get("objective") else "No se identificó objetivo explícito",
+            "Revisión sistemática y epidemiología contextual",
+            "uncertain" if not study.get("objective") else "moderate",
+        )
+        method_missing = [name for name, value in methods.items() if not value]
+        _append_claim(
+            "methods",
+            "Métodos reportados con faltantes explícitos" if method_missing else "Métodos reportados con componentes identificables",
+            "Protocolo detallado y plan analítico preespecificado",
+            "low" if method_missing else "moderate",
+        )
+        for finding in findings:
+            _append_claim(
+                "results",
+                _cautious_result_text(str(finding.get("raw_result", "")), language),
+                "Resultados estadísticos, medidas de efecto y datos reproducibles",
+                _certainty_from_uncertainty(str(finding.get("uncertainty", "unknown"))),
+            )
+        _append_claim(
+            "discussion",
+            "La interpretación se mantiene conservadora y dependiente de validación externa",
+            "Validación externa, replicación independiente y triangulación causal",
+            "uncertain",
+        )
+        return claims
+
+    _append_claim(
+        "introduction",
+        f"Stated objective: {study.get('objective')}" if study.get("objective") else "No explicit objective identified",
+        "Systematic background synthesis and epidemiologic context",
+        "uncertain" if not study.get("objective") else "moderate",
+    )
+    method_missing = [name for name, value in methods.items() if not value]
+    _append_claim(
+        "methods",
+        "Methods reported with explicit missing components" if method_missing else "Methods reported with identifiable components",
+        "Detailed protocol and prespecified analytic plan",
+        "low" if method_missing else "moderate",
+    )
+    for finding in findings:
+        _append_claim(
+            "results",
+            _cautious_result_text(str(finding.get("raw_result", "")), language),
+            "Statistical outputs, effect estimates, and reproducible data",
+            _certainty_from_uncertainty(str(finding.get("uncertainty", "unknown"))),
+        )
+    _append_claim(
+        "discussion",
+        "Interpretation is conservative and dependent on external validation",
+        "External validation, independent replication, and causal triangulation",
+        "uncertain",
+    )
     return claims
 
 
@@ -198,13 +349,19 @@ def generate_original_article(
     findings = ingest_output.get("findings", [])
     missing_fields = list(ingest_output.get("missing_fields", []))
 
-    sections = _build_sections(study, findings, language)
-    claims = _build_claims(findings, language)
+    sections = _build_sections(text, study, findings, language)
+    claims = _build_claims(text, study, findings, language)
 
     missing_elements = []
     for field in ("objective", "design", "population", "duration"):
         if study.get(field) is None:
             missing_elements.append(f"study.{field}")
+    for field, value in _methods_components(text, study).items():
+        if value is None:
+            normalized_field = field.replace("/", "_")
+            scoped = f"study.{normalized_field}"
+            if scoped not in missing_elements:
+                missing_elements.append(scoped)
     if not findings:
         missing_elements.append("findings")
     for item in missing_fields:
