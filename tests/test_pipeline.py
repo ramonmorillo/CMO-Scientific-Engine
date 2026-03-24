@@ -60,19 +60,24 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("was associated with an increase", result["claims"][0]["text"])
         self.assertEqual(
             result["claim_reference_map"][0]["reference_verification_status"],
-            ["UNVERIFIED"],
+            ["FAILED"],
         )
-        self.assertEqual(result["claim_reference_map"][0]["evidence_match"], ["MODERATE"])
+        self.assertEqual(result["claim_reference_map"][0]["evidence_match"], ["LOW"])
         self.assertEqual(result["audit_summary"]["high_quality_evidence_pct"], 0.0)
         self.assertEqual(result["audit_summary"]["weakly_supported_pct"], 100.0)
-        self.assertEqual(result["audit_summary"]["scientific_reliability_score"], 40.0)
+        self.assertEqual(result["audit_summary"]["scientific_reliability_score"], 30.0)
+        self.assertEqual(result["audit_summary"]["verification_integrity"], "MODERATE")
         self.assertEqual(
             [audit["support_confidence"] for audit in result["claim_audits"]],
-            ["UNCERTAIN", "UNCERTAIN"],
+            ["LOW", "LOW"],
         )
         self.assertEqual(
             [audit["risk_of_bias"] for audit in result["claim_audits"]],
             ["HIGH", "HIGH"],
+        )
+        self.assertEqual(
+            [audit["direct_support"] for audit in result["claim_audits"]],
+            ["NO", "NO"],
         )
         self.assertIn(
             {
@@ -86,18 +91,9 @@ class PipelineTests(unittest.TestCase):
         self.assertIn(
             {
                 "claim_id": "CLM-001",
-                "code": "unverified_reference",
-                "detail": "reference_metadata_insufficient_for_independent_verification",
-                "severity": "warning",
-            },
-            result["failed_checks"],
-        )
-        self.assertIn(
-            {
-                "claim_id": "CLM-001",
                 "code": "incomplete_methods",
                 "detail": "missing_design_details_comparator_sample_size_justification_confidence_interval",
-                "severity": "warning",
+                "severity": "fail",
             },
             result["failed_checks"],
         )

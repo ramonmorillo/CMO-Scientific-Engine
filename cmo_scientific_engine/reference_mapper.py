@@ -82,15 +82,15 @@ def _reference_verification_status(reference: Reference) -> str:
     if not _citation_is_structured(citation):
         return "FAILED"
 
-    trusted_identifier = any(
-        str(reference.get(key, "")).strip()
-        for key in ("doi", "pmid", "pmcid")
-    )
+    traceable_identifier = any(str(reference.get(key, "")).strip() for key in ("doi", "pmid", "url"))
+    if not traceable_identifier:
+        return "FAILED"
+
     trusted_metadata = all(
         str(reference.get(key, "")).strip()
         for key in ("title", "journal", "year")
     )
-    if trusted_identifier or trusted_metadata:
+    if traceable_identifier or trusted_metadata:
         metadata_title = _normalized_reference_title(reference)
         citation_title = _normalized_reference_title({"citation": citation})
         if metadata_title and citation_title and metadata_title != citation_title:
