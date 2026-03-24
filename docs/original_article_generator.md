@@ -37,10 +37,12 @@
 ## Rules implemented
 
 - Never invents missing information.
+- Introduction reports background, rationale, and objective with explicit missing markers.
+- Methods are structured into design, population, intervention/exposure, comparator, duration, outcomes, and analysis.
 - Explicitly marks incomplete methods in section text and warnings.
-- Uses cautious language for findings.
-- Reports results from provided findings only.
-- Keeps discussion split between demonstrated results and interpretation.
+- Uses cautious language for findings and groups results as primary, secondary, and additional.
+- Keeps discussion conservative with principal interpretation, limitations, and possible relevance.
+- Differentiates `evidence_needed` by claim type: introduction, methods, results, and discussion.
 - Emits warning when strategy does not recommend `original_article`.
 - Detects Spanish/English input and matches output language.
 
