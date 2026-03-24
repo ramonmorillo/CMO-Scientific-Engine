@@ -11,6 +11,7 @@ description: Audit claim-to-reference consistency for the final validation step 
 - Review each claim as a scientific reviewer, not only a structural validator.
 - Fail any claim missing mapped references.
 - Fail any mapping that points to an unknown claim.
+- Enforce conservative scientific judgment when verification or methods are incomplete.
 - Emit JSON only.
 - Keep failure reasons short and enumerable.
 - Distinguish `severity` as `fail` or `warning`.
@@ -30,6 +31,7 @@ description: Audit claim-to-reference consistency for the final validation step 
     {
       "claim_id": "string",
       "reference_ids": ["string"],
+      "reference_verification_status": ["VERIFIED|UNVERIFIED|FAILED"],
       "evidence_match": ["HIGH|MODERATE|LOW"],
       "mismatch_flags": ["string"]
     }
@@ -56,7 +58,9 @@ description: Audit claim-to-reference consistency for the final validation step 
       "evidence_level_ok": "YES|NO",
       "direct_support": "YES|NO",
       "risk_of_bias": "LOW|MODERATE|HIGH",
-      "overclaiming": "YES|NO"
+      "overclaiming": "YES|NO",
+      "support_confidence": "HIGH|MODERATE|LOW|UNCERTAIN",
+      "reference_verification_status": ["VERIFIED|UNVERIFIED|FAILED"]
     }
   ],
   "failed_checks": [
@@ -77,3 +81,7 @@ description: Audit claim-to-reference consistency for the final validation step 
 - Fail the pipeline if references are missing or if weakly supported claims exceed 30%.
 - Emit a warning, not a fail, for evidence mismatches unless another fail condition applies.
 - Do not expect claim-level reference IDs; audit mapped evidence only.
+- If `reference_verification_status != VERIFIED`, corresponding `evidence_match` cannot be `HIGH`.
+- `risk_of_bias` cannot be `LOW` when comparator, uncertainty/CI, study design, or sample size clarity is incomplete.
+- If causal language is used without confirmed randomized design, set `overclaiming: YES` and add `causal_overclaim`.
+- Add warning codes when applicable: `unverified_reference`, `causal_overclaim`, `incomplete_methods`.

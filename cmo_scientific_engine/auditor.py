@@ -52,6 +52,14 @@ def _best_match(matches: List[str]) -> str | None:
     return None
 
 
+def _cap_evidence_match_by_verification(match: str, verification_status: str) -> str:
+    normalized_status = _normalize_verification_status(verification_status)
+    normalized_match = str(match or "").strip().upper()
+    if normalized_status != "VERIFIED" and normalized_match == "HIGH":
+        return "MODERATE"
+    return normalized_match
+
+
 def _methodology_completeness(study: Dict[str, Any], claim: Dict[str, Any]) -> Dict[str, bool]:
     design_present = any(str(study.get(key, "")).strip() for key in ("design", "design_details", "study_design"))
     comparator_present = bool(str(study.get("comparator", "")).strip())
@@ -70,9 +78,11 @@ def _methodology_completeness(study: Dict[str, Any], claim: Dict[str, Any]) -> D
 
 
 def _has_minimum_low_bias_inputs(methodology: Dict[str, bool]) -> bool:
-    return all(
-        methodology[field]
-        for field in ("confidence_interval", "sample_size_justification", "comparator")
+    return (
+        methodology["design_details"]
+        and methodology["comparator"]
+        and methodology["sample_size_justification"]
+        and (methodology["confidence_interval"] or methodology["uncertainty"])
     )
 
 
@@ -92,7 +102,9 @@ def _confirmed_rct(study: Dict[str, Any], mapping: Dict[str, Any]) -> bool:
     design_text = " ".join(
         str(study.get(key, "")).lower() for key in ("design", "design_details", "study_design")
     )
-    study_confirms_rct = any(token in design_text for token in ("randomized", "randomised", "rct", "controlled trial"))
+    study_confirms_rct = any(
+        token in design_text for token in ("randomized", "randomised", "rct", "controlled trial")
+    )
     citations = mapping.get("citations", [])
     statuses = [_normalize_verification_status(status) for status in mapping.get("reference_verification_status", [])]
     matches = mapping.get("evidence_match", [])
@@ -100,7 +112,7 @@ def _confirmed_rct(study: Dict[str, Any], mapping: Dict[str, Any]) -> bool:
     for citation, status, match in zip(citations, statuses, matches):
         if status == "VERIFIED" and match in ACCEPTABLE_EVIDENCE and _citation_supports_rct(citation):
             return True
-    return study_confirms_rct and any(status == "VERIFIED" for status in statuses)
+    return False if not study_confirms_rct else any(status == "VERIFIED" for status in statuses)
 
 
 def _risk_of_bias(
@@ -131,7 +143,7 @@ def _support_confidence(
     normalized_statuses = [_normalize_verification_status(status) for status in verification_statuses]
     if not normalized_statuses or "FAILED" in normalized_statuses:
         return "LOW"
-    method_complete = all(methodology.values())
+    method_complete = _has_minimum_low_bias_inputs(methodology)
     if all(status == "UNVERIFIED" for status in normalized_statuses):
         return "UNCERTAIN"
     if best_match == "HIGH" and method_complete and all(status == "VERIFIED" for status in normalized_statuses):
@@ -187,6 +199,13 @@ def _scientific_reliability_score(claim_flags: List[Dict[str, bool]]) -> float:
     reliability_score = max(0.0, round(base_score, 1))
     if any(flags["non_verified_reference_present"] for flags in claim_flags):
         reliability_score = min(reliability_score, 50.0)
+    if any(flags["missing_methodological_data"] for flags in claim_flags):
+        reliability_score = min(reliability_score, 40.0)
+    if reliability_score == 100.0 and (
+        any(flags["non_verified_reference_present"] for flags in claim_flags)
+        or any(flags["missing_methodological_data"] for flags in claim_flags)
+    ):
+        reliability_score = 90.0
     return reliability_score
 
 
@@ -281,9 +300,15 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
             },
         )
         mapped_reference_ids = mapping.get("reference_ids", [])
-        evidence_matches = mapping.get("evidence_match", [])
+        raw_evidence_matches = mapping.get("evidence_match", [])
         mismatch_flags = mapping.get("mismatch_flags", [])
-        verification_statuses = [_normalize_verification_status(status) for status in mapping.get("reference_verification_status", [])]
+        verification_statuses = [
+            _normalize_verification_status(status) for status in mapping.get("reference_verification_status", [])
+        ]
+        evidence_matches = [
+            _cap_evidence_match_by_verification(match, status)
+            for match, status in zip(raw_evidence_matches, verification_statuses)
+        ]
         best_match = _best_match(evidence_matches)
         methodology = _methodology_completeness(study, claim)
         confirmed_rct = _confirmed_rct(study, mapping)
@@ -353,11 +378,21 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
             failed_checks.append(
                 {
                     "claim_id": claim_id,
-                    "code": "reference_unverified",
+                    "code": "unverified_reference",
                     "detail": "reference_metadata_insufficient_for_independent_verification",
                     "severity": "warning",
                 }
             )
+        for raw_match, status_value in zip(raw_evidence_matches, verification_statuses):
+            if _normalize_verification_status(status_value) != "VERIFIED" and str(raw_match).upper() == "HIGH":
+                failed_checks.append(
+                    {
+                        "claim_id": claim_id,
+                        "code": "unverified_reference",
+                        "detail": "high_evidence_downgraded_due_to_unverified_reference",
+                        "severity": "warning",
+                    }
+                )
         if "FAILED" in verification_statuses or "reference_verification_failed" in mismatch_flags:
             status = "fail"
             failed_checks.append(
@@ -389,13 +424,20 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                 }
             )
 
-        missing_method_fields = [name for name, present in methodology.items() if not present]
+        missing_method_fields = [
+            name
+            for name, present in methodology.items()
+            if not present and name != "uncertainty"
+        ]
+        has_uncertainty_signal = methodology["confidence_interval"] or methodology["uncertainty"]
+        if not has_uncertainty_signal:
+            missing_method_fields.append("uncertainty")
         if missing_method_fields:
             checks.append("methodology_incomplete")
             failed_checks.append(
                 {
                     "claim_id": claim_id,
-                    "code": "methodology_incomplete",
+                    "code": "incomplete_methods",
                     "detail": "missing_" + "_".join(missing_method_fields),
                     "severity": "warning",
                 }
@@ -408,9 +450,9 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
             failed_checks.append(
                 {
                     "claim_id": claim_id,
-                    "code": "overclaiming",
+                    "code": "causal_overclaim",
                     "detail": "claim_strength_exceeds_support",
-                    "severity": "fail",
+                    "severity": "warning",
                 }
             )
         if evidence_level_ok == "NO":
