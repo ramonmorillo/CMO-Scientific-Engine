@@ -45,7 +45,7 @@ TESTABLE_MARKERS = (
     "throughput",
     "score",
 )
-PRIORITY_VALUES = {"primary", "secondary"}
+PRIORITY_VALUES = {"primary", "secondary", "unknown"}
 
 
 class InputValidationError(ValueError):
@@ -112,7 +112,7 @@ def _validate_findings(findings: List[Dict[str, Any]]) -> None:
         if finding["finding_id"] in seen_finding_ids:
             raise InputValidationError(f"duplicate finding_id: {finding['finding_id']}")
         seen_finding_ids.add(finding["finding_id"])
-        if _normalized_uncertainty(finding) not in {"low", "moderate", "high", "substantial", "exploratory"}:
+        if _normalized_uncertainty(finding) not in {"low", "moderate", "high", "substantial", "exploratory", "unknown"}:
             raise InputValidationError(
                 f"finding {finding['finding_id']} uncertainty not supported"
             )
