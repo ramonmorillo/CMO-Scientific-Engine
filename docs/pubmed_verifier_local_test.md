@@ -11,9 +11,9 @@ Use this only on a machine with outbound access to `https://eutils.ncbi.nlm.nih.
 export NCBI_API_KEY="your_key_here"
 ```
 
-## 2) Run quick real/fake citation checks
+## 2) Run quick identifier verification checks
 
-### Real citation test (expected `verified`)
+### Real PMID identifier test (expected `verified`)
 
 ```bash
 python -m cmo_scientific_engine.pubmed_verifier --citation "PMID: 31978945"
@@ -24,7 +24,7 @@ Expected:
 - `pmid: "31978945"`
 - title/journal/year populated
 
-### Fake citation test (expected `not_found`)
+### Fake PMID identifier test (expected `not_found`)
 
 ```bash
 python -m cmo_scientific_engine.pubmed_verifier --citation "PMID: 999999999"
@@ -34,9 +34,11 @@ Expected:
 - `match_status: "not_found"`
 - `pmid: null`
 
-## 3) Additional real retrieval case (known PubMed article)
+## 3) Additional identifier and free-text tests
 
-Use DOI for the NEJM COVID-19 paper (`10.1056/NEJMoa2001017`), which is indexed as PMID `31978945`.
+### Real DOI identifier test (expected `verified`)
+
+Use DOI `10.1056/NEJMoa2001017` (indexed as PMID `31978945`).
 
 ```bash
 python -m cmo_scientific_engine.pubmed_verifier --citation "10.1056/NEJMoa2001017"
@@ -46,6 +48,19 @@ Expected:
 - `query: "10.1056/NEJMOA2001017[DOI]"`
 - `match_status: "verified"`
 - `pmid: "31978945"`
+
+### Real free-text citation test (expected `verified` or `ambiguous`)
+
+Use a known title string:
+
+```bash
+python -m cmo_scientific_engine.pubmed_verifier --citation "A novel coronavirus from patients with pneumonia in China, 2019"
+```
+
+Expected:
+- `match_status: "verified"` **or** `match_status: "ambiguous"`
+- If `verified`, one PMID is matched.
+- If `ambiguous`, treat as unresolved and manually review.
 
 ## 4) Expected JSON status patterns
 
@@ -79,6 +94,8 @@ No PubMed IDs returned by ESearch.
 
 ### `ambiguous`
 Multiple PubMed IDs returned; first candidate is emitted.
+
+⚠️ **Never treat `ambiguous` as verified.** It requires manual disambiguation before downstream use.
 
 ```json
 {
