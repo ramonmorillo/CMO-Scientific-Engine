@@ -21,6 +21,10 @@ PMID_PATTERN = re.compile(r"\bPMID\s*:?\s*(\d{4,9})\b", re.IGNORECASE)
 DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
 
 
+class PubMedAPIUnavailableError(RuntimeError):
+    """Raised when PubMed API cannot be reached after retries."""
+
+
 @dataclass
 class PubMedVerifierClient:
     """Small PubMed E-Utilities client with rate limiting and retries."""
@@ -66,7 +70,7 @@ class PubMedVerifierClient:
                     break
                 time.sleep(min(0.5 * (2**attempt), 2.0))
 
-        raise RuntimeError(f"PubMed API request failed for {endpoint}: {last_error}")
+        raise PubMedAPIUnavailableError(f"PubMed API request failed for {endpoint}: {last_error}")
 
     def esearch(self, term: str, retmax: int = 5) -> List[str]:
         response = self._request_json(
@@ -129,7 +133,20 @@ def verify_citation(citation: str, client: Optional[PubMedVerifierClient] = None
     """Verify a free-text citation against PubMed using ESearch + ESummary."""
     pubmed_client = client or PubMedVerifierClient(api_key=os.getenv("NCBI_API_KEY"))
     query = _citation_query(citation)
-    pmids = pubmed_client.esearch(query, retmax=3)
+    try:
+        pmids = pubmed_client.esearch(query, retmax=3)
+    except PubMedAPIUnavailableError:
+        return {
+            "query": query,
+            "match_status": "api_unavailable",
+            "pmid": None,
+            "title": None,
+            "journal": None,
+            "year": None,
+            "doi": None,
+            "verification_status": "deferred",
+            "error_class": "network_or_proxy",
+        }
 
     if not pmids:
         return {
@@ -188,6 +205,7 @@ def enrich_failed_references(
     for mapping in claim_reference_map:
         reference_ids = mapping.get("reference_ids", [])
         statuses = list(mapping.get("reference_verification_status", []))
+        mismatch_flags = list(mapping.get("mismatch_flags", []))
         for index, reference_id in enumerate(reference_ids):
             if index >= len(statuses) or statuses[index] != "FAILED":
                 continue
@@ -195,14 +213,22 @@ def enrich_failed_references(
             if not reference:
                 continue
             result = verify_citation(reference.get("citation", ""), client=pubmed_client)
-            if result["match_status"] != "not_found":
+            if result["match_status"] == "api_unavailable":
+                statuses[index] = "UNVERIFIED"
+                if index < len(mismatch_flags):
+                    mismatch_flags[index] = "reference_unverified"
+            elif result["match_status"] != "not_found":
                 statuses[index] = "VERIFIED"
                 reference["pmid"] = result["pmid"]
                 reference["doi"] = result["doi"]
                 reference["title"] = result["title"]
                 reference["journal"] = result["journal"]
                 reference["year"] = result["year"]
+                if index < len(mismatch_flags):
+                    mismatch_flags[index] = "none"
         mapping["reference_verification_status"] = statuses
+        if mismatch_flags:
+            mapping["mismatch_flags"] = mismatch_flags
     return claim_reference_map
 
 

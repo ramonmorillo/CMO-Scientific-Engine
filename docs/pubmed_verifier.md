@@ -16,6 +16,8 @@ Optional API key:
 export NCBI_API_KEY="..."
 ```
 
+Live verification requires outbound network access to `eutils.ncbi.nlm.nih.gov` (NCBI E-Utilities). In restricted environments (proxy blocks, no egress, DNS failures), verifier responses return `match_status: "api_unavailable"` and `verification_status: "deferred"`.
+
 ## Safeguards
 
 - Request timeout (default 10s)
@@ -33,12 +35,14 @@ Output schema:
 ```json
 {
   "query": "...",
-  "match_status": "verified|ambiguous|not_found",
+  "match_status": "verified|ambiguous|not_found|api_unavailable",
   "pmid": "string|null",
   "title": "string|null",
   "journal": "string|null",
   "year": "string|null",
-  "doi": "string|null"
+  "doi": "string|null",
+  "verification_status": "deferred|null",
+  "error_class": "network_or_proxy|null"
 }
 ```
 
@@ -71,3 +75,4 @@ When pipeline input sets `enable_pubmed_verifier: true`, the pipeline attempts P
 
 - If PubMed finds a match, status is upgraded to `VERIFIED` and metadata is enriched (`pmid`, `doi`, `title`, `journal`, `year`).
 - If PubMed does not find a match, status remains `FAILED`.
+- If PubMed API is unavailable, status is downgraded to `UNVERIFIED` (deferred verification), not `FAILED`.

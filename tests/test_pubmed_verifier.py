@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from urllib.error import URLError
 from unittest.mock import patch
 
 from cmo_scientific_engine.pubmed_verifier import (
@@ -56,6 +57,39 @@ class PubMedVerifierTests(unittest.TestCase):
             result = verify_citation("unknown citation", client=PubMedVerifierClient(max_requests_per_second=1000))
 
         self.assertEqual(result["match_status"], "not_found")
+        self.assertIsNone(result["pmid"])
+
+    def test_verify_citation_ambiguous(self) -> None:
+        esearch_payload = {"esearchresult": {"idlist": ["12345", "67890"]}}
+        esummary_payload = {
+            "result": {
+                "12345": {
+                    "title": "Example article one",
+                    "fulljournalname": "Example Journal",
+                    "pubdate": "2024 Jan",
+                    "articleids": [{"idtype": "doi", "value": "10.1000/example.one"}],
+                },
+                "67890": {
+                    "title": "Example article two",
+                    "fulljournalname": "Example Journal",
+                    "pubdate": "2023 Jan",
+                    "articleids": [{"idtype": "doi", "value": "10.1000/example.two"}],
+                },
+            }
+        }
+        with patch("urllib.request.urlopen", side_effect=[_FakeResponse(esearch_payload), _FakeResponse(esummary_payload)]):
+            result = verify_citation("sleep extension cognition", client=PubMedVerifierClient(max_requests_per_second=1000))
+
+        self.assertEqual(result["match_status"], "ambiguous")
+        self.assertEqual(result["pmid"], "12345")
+
+    def test_verify_citation_api_unavailable(self) -> None:
+        with patch("urllib.request.urlopen", side_effect=URLError("proxy blocked")):
+            result = verify_citation("PMID: 12345", client=PubMedVerifierClient(max_requests_per_second=1000, retries=0))
+
+        self.assertEqual(result["match_status"], "api_unavailable")
+        self.assertEqual(result["verification_status"], "deferred")
+        self.assertEqual(result["error_class"], "network_or_proxy")
         self.assertIsNone(result["pmid"])
 
     def test_search_claim_returns_candidates(self) -> None:
@@ -114,6 +148,39 @@ class PubMedVerifierTests(unittest.TestCase):
 
         self.assertEqual(updated[0]["reference_verification_status"], ["VERIFIED"])
         self.assertEqual(reference_library[0]["pmid"], "12345")
+
+    def test_enrich_failed_references_defers_when_api_unavailable(self) -> None:
+        claim_reference_map = [
+            {
+                "claim_id": "CLM-001",
+                "reference_ids": ["REF-001"],
+                "reference_verification_status": ["FAILED"],
+            }
+        ]
+        reference_library = [{"reference_id": "REF-001", "citation": "PMID: 12345"}]
+
+        with patch(
+            "cmo_scientific_engine.pubmed_verifier.verify_citation",
+            return_value={
+                "query": "12345[PMID]",
+                "match_status": "api_unavailable",
+                "pmid": None,
+                "title": None,
+                "journal": None,
+                "year": None,
+                "doi": None,
+                "verification_status": "deferred",
+                "error_class": "network_or_proxy",
+            },
+        ):
+            updated = enrich_failed_references(
+                claim_reference_map,
+                reference_library,
+                client=PubMedVerifierClient(max_requests_per_second=1000),
+            )
+
+        self.assertEqual(updated[0]["reference_verification_status"], ["UNVERIFIED"])
+        self.assertNotIn("pmid", reference_library[0])
 
 
 if __name__ == "__main__":
