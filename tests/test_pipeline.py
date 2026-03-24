@@ -65,7 +65,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result["claim_reference_map"][0]["evidence_match"], ["MODERATE"])
         self.assertEqual(result["audit_summary"]["high_quality_evidence_pct"], 0.0)
         self.assertEqual(result["audit_summary"]["weakly_supported_pct"], 100.0)
-        self.assertEqual(result["audit_summary"]["scientific_reliability_score"], 50.0)
+        self.assertEqual(result["audit_summary"]["scientific_reliability_score"], 40.0)
         self.assertEqual(
             [audit["support_confidence"] for audit in result["claim_audits"]],
             ["UNCERTAIN", "UNCERTAIN"],
@@ -80,6 +80,24 @@ class PipelineTests(unittest.TestCase):
                 "code": "weak_support_threshold",
                 "detail": "weakly_supported_claims_exceed_30_percent",
                 "severity": "fail",
+            },
+            result["failed_checks"],
+        )
+        self.assertIn(
+            {
+                "claim_id": "CLM-001",
+                "code": "unverified_reference",
+                "detail": "reference_metadata_insufficient_for_independent_verification",
+                "severity": "warning",
+            },
+            result["failed_checks"],
+        )
+        self.assertIn(
+            {
+                "claim_id": "CLM-001",
+                "code": "incomplete_methods",
+                "detail": "missing_design_details_comparator_sample_size_justification_confidence_interval",
+                "severity": "warning",
             },
             result["failed_checks"],
         )

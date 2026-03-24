@@ -73,7 +73,7 @@
     "failed_claims": 2,
     "high_quality_evidence_pct": 0.0,
     "weakly_supported_pct": 100.0,
-    "scientific_reliability_score": 50.0
+    "scientific_reliability_score": 40.0
   },
   "claim_audits": [
     {
@@ -124,25 +124,25 @@
   "failed_checks": [
     {
       "claim_id": "CLM-001",
-      "code": "reference_unverified",
+      "code": "unverified_reference",
       "detail": "reference_metadata_insufficient_for_independent_verification",
       "severity": "warning"
     },
     {
       "claim_id": "CLM-001",
-      "code": "methodology_incomplete",
+      "code": "incomplete_methods",
       "detail": "missing_design_details_comparator_sample_size_justification_confidence_interval",
       "severity": "warning"
     },
     {
       "claim_id": "CLM-002",
-      "code": "reference_unverified",
+      "code": "unverified_reference",
       "detail": "reference_metadata_insufficient_for_independent_verification",
       "severity": "warning"
     },
     {
       "claim_id": "CLM-002",
-      "code": "methodology_incomplete",
+      "code": "incomplete_methods",
       "detail": "missing_design_details_comparator_sample_size_justification_confidence_interval",
       "severity": "warning"
     },
