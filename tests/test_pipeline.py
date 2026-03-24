@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from cmo_scientific_engine import run_pipeline
+from cmo_scientific_engine.auditor import audit_claims
 
 
 class PipelineTests(unittest.TestCase):
@@ -59,18 +60,19 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("was associated with an increase", result["claims"][0]["text"])
         self.assertEqual(
             result["claim_reference_map"][0]["reference_verification_status"],
-            ["unverified"],
+            ["UNVERIFIED"],
         )
+        self.assertEqual(result["claim_reference_map"][0]["evidence_match"], ["MODERATE"])
         self.assertEqual(result["audit_summary"]["high_quality_evidence_pct"], 0.0)
         self.assertEqual(result["audit_summary"]["weakly_supported_pct"], 100.0)
-        self.assertLessEqual(result["audit_summary"]["scientific_reliability_score"], 40.0)
+        self.assertEqual(result["audit_summary"]["scientific_reliability_score"], 50.0)
         self.assertEqual(
             [audit["support_confidence"] for audit in result["claim_audits"]],
             ["UNCERTAIN", "UNCERTAIN"],
         )
         self.assertEqual(
             [audit["risk_of_bias"] for audit in result["claim_audits"]],
-            ["MODERATE", "MODERATE"],
+            ["HIGH", "HIGH"],
         )
         self.assertIn(
             {
@@ -102,14 +104,14 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(mapped_items["CLM-001"]["evidence_match"], ["HIGH", "MODERATE"])
         self.assertEqual(
             mapped_items["CLM-001"]["reference_verification_status"],
-            ["verified", "verified"],
+            ["VERIFIED", "VERIFIED"],
         )
         self.assertEqual(
             mapped_items["CLM-001"]["mismatch_flags"],
             ["none", "partial_evidence_alignment"],
         )
         self.assertEqual(mapped_items["CLM-002"]["reference_ids"], ["REF-002"])
-        self.assertEqual(mapped_items["CLM-002"]["reference_verification_status"], ["verified"])
+        self.assertEqual(mapped_items["CLM-002"]["reference_verification_status"], ["VERIFIED"])
         self.assertIn(
             {
                 "claim_id": "CLM-001",
@@ -159,8 +161,48 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual(
             result["claim_reference_map"][0]["reference_verification_status"],
-            ["failed"],
+            ["FAILED"],
         )
+        self.assertLessEqual(result["audit_summary"]["scientific_reliability_score"], 50.0)
+
+    def test_auditor_rewrites_overclaiming_without_confirmed_rct(self) -> None:
+        claims_json = {
+            "study": {
+                "study_id": "STUDY-002",
+                "title": "Association example",
+                "domain": "clinical_research",
+                "objective": "Assess throughput.",
+            },
+            "claims": [
+                {
+                    "claim_id": "CLM-001",
+                    "finding_ids": ["FND-001"],
+                    "text": "Sleep extension improved median cognitive throughput by 14 percent.",
+                    "priority": "primary",
+                    "uncertainty": "moderate",
+                    "evidence_needed": "RCT",
+                    "justification": "Intervention effect claims need controlled causal evidence.",
+                }
+            ],
+        }
+        mapping_json = {
+            "claim_reference_map": [
+                {
+                    "claim_id": "CLM-001",
+                    "reference_ids": ["REF-001"],
+                    "citations": ["Navarro L, Singh P. Randomized trial of cognitive throughput after sleep extension. J Sleep Metrics. 2025;12(4):201-210."],
+                    "evidence_match": ["MODERATE"],
+                    "reference_verification_status": ["UNVERIFIED"],
+                    "mismatch_flags": ["reference_unverified"],
+                }
+            ]
+        }
+
+        result = audit_claims(claims_json, mapping_json)
+
+        self.assertEqual(result["claim_audits"][0]["overclaiming"], "YES")
+        self.assertEqual(result["claim_audits"][0]["rewritten_claim_text"], "Sleep extension was associated with improvement in median cognitive throughput by 14 percent.")
+        self.assertEqual(result["audit_summary"]["scientific_reliability_score"], 30.0)
 
     def test_generator_rejects_deprecated_finding_claim_fields(self) -> None:
         payload = self._example_payload()

@@ -39,10 +39,10 @@
         "Navarro L, Singh P. Randomized trial of cognitive throughput after sleep extension. J Sleep Metrics. 2025;12(4):201-210."
       ],
       "evidence_match": [
-        "HIGH"
+        "MODERATE"
       ],
       "reference_verification_status": [
-        "unverified"
+        "UNVERIFIED"
       ],
       "mismatch_flags": [
         "reference_unverified"
@@ -57,10 +57,10 @@
         "Ito R, Hale M. Observational study of adherence patterns in behavioral sleep interventions. Clin Protocols. 2024;8(1):44-51."
       ],
       "evidence_match": [
-        "HIGH"
+        "MODERATE"
       ],
       "reference_verification_status": [
-        "unverified"
+        "UNVERIFIED"
       ],
       "mismatch_flags": [
         "reference_unverified"
@@ -73,7 +73,7 @@
     "failed_claims": 2,
     "high_quality_evidence_pct": 0.0,
     "weakly_supported_pct": 100.0,
-    "scientific_reliability_score": 22.0
+    "scientific_reliability_score": 50.0
   },
   "claim_audits": [
     {
@@ -83,15 +83,20 @@
         "has_findings",
         "has_references",
         "references_mapped_from_finding_overlap",
-        "scientific_support_high",
+        "scientific_support_moderate",
         "reference_verification_incomplete",
         "methodology_incomplete"
       ],
       "evidence_level_ok": "NO",
       "direct_support": "YES",
-      "risk_of_bias": "MODERATE",
+      "risk_of_bias": "HIGH",
       "overclaiming": "NO",
-      "support_confidence": "UNCERTAIN"
+      "support_confidence": "UNCERTAIN",
+      "reference_verification_status": [
+        "UNVERIFIED"
+      ],
+      "confirmed_rct": "NO",
+      "rewritten_claim_text": "Sleep extension was associated with an increase in median cognitive throughput by 14 percent after six weeks."
     },
     {
       "claim_id": "CLM-002",
@@ -100,15 +105,20 @@
         "has_findings",
         "has_references",
         "references_mapped_from_finding_overlap",
-        "scientific_support_high",
+        "scientific_support_moderate",
         "reference_verification_incomplete",
         "methodology_incomplete"
       ],
       "evidence_level_ok": "NO",
       "direct_support": "YES",
-      "risk_of_bias": "MODERATE",
+      "risk_of_bias": "HIGH",
       "overclaiming": "NO",
-      "support_confidence": "UNCERTAIN"
+      "support_confidence": "UNCERTAIN",
+      "reference_verification_status": [
+        "UNVERIFIED"
+      ],
+      "confirmed_rct": "NO",
+      "rewritten_claim_text": "Protocol adherence remained above 90 percent throughout the intervention period."
     }
   ],
   "failed_checks": [

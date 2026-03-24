@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Set
 
 Reference = Dict[str, Any]
 ALLOWED_EVIDENCE_MATCH = ("HIGH", "MODERATE", "LOW")
-ALLOWED_VERIFICATION_STATUS = ("verified", "unverified", "failed")
+ALLOWED_VERIFICATION_STATUS = ("VERIFIED", "UNVERIFIED", "FAILED")
 REQUIRED_REFERENCE_KEYS = ("reference_id", "citation", "finding_ids")
 
 
@@ -80,7 +80,7 @@ def _normalized_reference_title(reference: Reference) -> str:
 def _reference_verification_status(reference: Reference) -> str:
     citation = str(reference.get("citation", "")).strip()
     if not _citation_is_structured(citation):
-        return "failed"
+        return "FAILED"
 
     trusted_identifier = any(
         str(reference.get(key, "")).strip()
@@ -94,9 +94,9 @@ def _reference_verification_status(reference: Reference) -> str:
         metadata_title = _normalized_reference_title(reference)
         citation_title = _normalized_reference_title({"citation": citation})
         if metadata_title and citation_title and metadata_title != citation_title:
-            return "failed"
-        return "verified"
-    return "unverified"
+            return "FAILED"
+        return "VERIFIED"
+    return "UNVERIFIED"
 
 
 def _evidence_alignment(required: str, observed: str) -> str:
@@ -113,6 +113,16 @@ def _evidence_alignment(required: str, observed: str) -> str:
     if (required, observed) in compatible_pairs:
         return "MODERATE"
     return "LOW"
+
+
+def _apply_verification_constraints(match: str, verification_status: str) -> str:
+    if verification_status == "VERIFIED":
+        return match
+    if verification_status == "FAILED":
+        return "LOW"
+    if match == "HIGH":
+        return "MODERATE"
+    return match
 
 
 def map_references(claims_json: Dict[str, Any], reference_library: List[Reference]) -> Dict[str, Any]:
@@ -144,20 +154,19 @@ def map_references(claims_json: Dict[str, Any], reference_library: List[Referenc
             observed_evidence = _infer_reference_evidence_type(citation)
             match = _evidence_alignment(evidence_needed, observed_evidence)
             verification_status = _reference_verification_status(reference)
-            if verification_status == "failed":
-                match = "LOW"
+            match = _apply_verification_constraints(match, verification_status)
             reference_ids.append(reference["reference_id"])
             citations.append(citation)
             evidence_match.append(match)
             reference_verification_status.append(verification_status)
-            if verification_status == "failed":
+            if verification_status == "FAILED":
                 mismatch_flags.append("reference_verification_failed")
+            elif verification_status == "UNVERIFIED":
+                mismatch_flags.append("reference_unverified")
             elif match == "LOW":
                 mismatch_flags.append("evidence_needed_mismatch")
             elif match == "MODERATE":
                 mismatch_flags.append("partial_evidence_alignment")
-            elif verification_status == "unverified":
-                mismatch_flags.append("reference_unverified")
             else:
                 mismatch_flags.append("none")
 

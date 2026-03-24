@@ -11,13 +11,35 @@ CLAIM_ID_PATTERN = re.compile(r"^CLM-\d{3}$")
 REFERENCE_ID_PATTERN = re.compile(r"^REF-\d{3}$")
 ACCEPTABLE_EVIDENCE = {"HIGH", "MODERATE"}
 WEAK_EVIDENCE = {"LOW"}
-CAUSAL_MARKERS = ("caused", "proved", "eliminated", "prevented", "improved", "increased", "reduced", "decreased")
+CAUSAL_PATTERNS = (
+    r"\bcauses?\b",
+    r"\bcaused\b",
+    r"\bimproves?\b",
+    r"\bimproved\b",
+    r"\bprevents?\b",
+    r"\bprevented\b",
+    r"\breduces?\b",
+    r"\breduced\b",
+    r"\bdecreases?\b",
+    r"\bdecreased\b",
+    r"\bincreases?\b",
+    r"\bincreased\b",
+    r"\beliminates?\b",
+    r"\bproves?\b",
+)
 
 
 def _percent(part: int, whole: int) -> float:
     if whole == 0:
         return 0.0
     return round((part / whole) * 100, 1)
+
+
+def _normalize_verification_status(status: str) -> str:
+    normalized = str(status or "").strip().upper()
+    if normalized in {"VERIFIED", "UNVERIFIED", "FAILED"}:
+        return normalized
+    return "UNVERIFIED"
 
 
 def _best_match(matches: List[str]) -> str | None:
@@ -47,19 +69,57 @@ def _methodology_completeness(study: Dict[str, Any], claim: Dict[str, Any]) -> D
     }
 
 
-def _risk_of_bias(claim: Dict[str, Any], best_match: str | None, methodology: Dict[str, bool]) -> str:
+def _has_minimum_low_bias_inputs(methodology: Dict[str, bool]) -> bool:
+    return all(
+        methodology[field]
+        for field in ("confidence_interval", "sample_size_justification", "comparator")
+    )
+
+
+def _citation_supports_rct(citation: str) -> bool:
+    normalized = citation.lower()
+    return any(token in normalized for token in ("randomized", "randomised", "controlled trial", "trial", "placebo"))
+
+
+def _has_causal_language(text: str) -> bool:
+    normalized = text.lower()
+    if "was associated with" in normalized:
+        return False
+    return any(re.search(pattern, normalized) for pattern in CAUSAL_PATTERNS)
+
+
+def _confirmed_rct(study: Dict[str, Any], mapping: Dict[str, Any]) -> bool:
+    design_text = " ".join(
+        str(study.get(key, "")).lower() for key in ("design", "design_details", "study_design")
+    )
+    study_confirms_rct = any(token in design_text for token in ("randomized", "randomised", "rct", "controlled trial"))
+    citations = mapping.get("citations", [])
+    statuses = [_normalize_verification_status(status) for status in mapping.get("reference_verification_status", [])]
+    matches = mapping.get("evidence_match", [])
+
+    for citation, status, match in zip(citations, statuses, matches):
+        if status == "VERIFIED" and match in ACCEPTABLE_EVIDENCE and _citation_supports_rct(citation):
+            return True
+    return study_confirms_rct and any(status == "VERIFIED" for status in statuses)
+
+
+def _risk_of_bias(
+    claim: Dict[str, Any],
+    best_match: str | None,
+    methodology: Dict[str, bool],
+    verified_references_present: bool,
+) -> str:
     evidence_needed = claim.get("evidence_needed", "observational")
-    method_complete = all(methodology.values())
-    if best_match is None:
+    if best_match is None or not verified_references_present:
         return "HIGH"
+    if not _has_minimum_low_bias_inputs(methodology):
+        return "MODERATE" if best_match in {"HIGH", "MODERATE"} else "HIGH"
     if evidence_needed == "RCT":
-        if not method_complete:
-            return "MODERATE" if best_match in {"HIGH", "MODERATE"} else "HIGH"
-        return "LOW" if best_match == "HIGH" else "MODERATE"
+        return "LOW" if best_match == "HIGH" and methodology["design_details"] else "MODERATE"
     if evidence_needed in {"meta-analysis", "systematic review"}:
-        return "MODERATE" if best_match in {"HIGH", "MODERATE"} else "HIGH"
+        return "MODERATE"
     if evidence_needed == "conceptual":
-        return "MODERATE" if best_match in {"HIGH", "MODERATE"} else "HIGH"
+        return "MODERATE"
     return "MODERATE" if best_match in {"HIGH", "MODERATE"} else "HIGH"
 
 
@@ -68,37 +128,66 @@ def _support_confidence(
     verification_statuses: List[str],
     methodology: Dict[str, bool],
 ) -> str:
-    if not verification_statuses or "failed" in verification_statuses:
+    normalized_statuses = [_normalize_verification_status(status) for status in verification_statuses]
+    if not normalized_statuses or "FAILED" in normalized_statuses:
         return "LOW"
     method_complete = all(methodology.values())
-    if all(status == "unverified" for status in verification_statuses):
+    if all(status == "UNVERIFIED" for status in normalized_statuses):
         return "UNCERTAIN"
-    if best_match == "HIGH" and method_complete and all(status == "verified" for status in verification_statuses):
+    if best_match == "HIGH" and method_complete and all(status == "VERIFIED" for status in normalized_statuses):
         return "HIGH"
-    if best_match in {"HIGH", "MODERATE"}:
+    if best_match in {"HIGH", "MODERATE"} and all(status == "VERIFIED" for status in normalized_statuses):
         return "MODERATE" if method_complete else "UNCERTAIN"
+    if best_match == "MODERATE":
+        return "UNCERTAIN"
     return "LOW"
 
 
-def _is_overclaiming(
-    claim: Dict[str, Any],
-    best_match: str | None,
-    study: Dict[str, Any],
-    methodology: Dict[str, bool],
-) -> str:
-    text = claim.get("text", "").lower()
-    design_text = " ".join(
-        str(study.get(key, "")).lower() for key in ("design", "design_details", "study_design")
+def _rewrite_claim_text(text: str) -> str:
+    replacements = (
+        (r"\bimproved\b", "was associated with improvement in"),
+        (r"\bimproves\b", "was associated with improvement in"),
+        (r"\bincreased\b", "was associated with an increase in"),
+        (r"\bincreases\b", "was associated with an increase in"),
+        (r"\breduced\b", "was associated with a reduction in"),
+        (r"\breduces\b", "was associated with a reduction in"),
+        (r"\bdecreased\b", "was associated with a decrease in"),
+        (r"\bdecreases\b", "was associated with a decrease in"),
+        (r"\bprevented\b", "was associated with lower"),
+        (r"\bprevents\b", "was associated with lower"),
+        (r"\bcaused\b", "was associated with"),
+        (r"\bcauses\b", "was associated with"),
     )
-    randomized_design = any(token in design_text for token in ("randomized", "randomised", "rct"))
-    complete_design = methodology["design_details"]
-    if any(marker in text for marker in CAUSAL_MARKERS) and (not randomized_design or not complete_design):
-        return "POSSIBLE"
-    if any(marker in text for marker in CAUSAL_MARKERS) and claim.get("evidence_needed") != "RCT":
-        return "YES"
-    if any(marker in text for marker in CAUSAL_MARKERS) and best_match != "HIGH":
-        return "YES"
-    return "NO"
+    revised = text
+    for pattern, replacement in replacements:
+        revised, count = re.subn(pattern, replacement, revised, count=1, flags=re.IGNORECASE)
+        if count:
+            return revised
+    if "was associated with" in revised.lower():
+        return revised
+    return f"was associated with {revised[0].lower()}{revised[1:]}" if revised else revised
+
+
+def _is_overclaiming(claim: Dict[str, Any], confirmed_rct: bool) -> str:
+    return "YES" if _has_causal_language(claim.get("text", "")) and not confirmed_rct else "NO"
+
+
+def _scientific_reliability_score(claim_flags: List[Dict[str, bool]]) -> float:
+    if not claim_flags:
+        return 0.0
+    base_score = 100.0
+    if any(flags["has_unverified_reference"] for flags in claim_flags):
+        base_score -= 30.0
+    if any(flags["missing_methodological_data"] for flags in claim_flags):
+        base_score -= 20.0
+    if any(flags["causal_without_confirmed_rct"] for flags in claim_flags):
+        base_score -= 20.0
+    if any(flags["has_failed_reference"] for flags in claim_flags):
+        base_score -= 20.0
+    reliability_score = max(0.0, round(base_score, 1))
+    if any(flags["non_verified_reference_present"] for flags in claim_flags):
+        reliability_score = min(reliability_score, 50.0)
+    return reliability_score
 
 
 def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> Dict[str, Any]:
@@ -114,6 +203,8 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
     claim_audits = []
     weak_claim_count = 0
     high_quality_claim_count = 0
+    claim_flags: List[Dict[str, bool]] = []
+    rewritten_claims: List[Dict[str, str]] = []
 
     seen_claim_ids: Set[str] = set()
     for claim_id in claim_ids:
@@ -185,14 +276,19 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                 "reference_ids": [],
                 "evidence_match": [],
                 "mismatch_flags": [],
+                "reference_verification_status": [],
+                "citations": [],
             },
         )
         mapped_reference_ids = mapping.get("reference_ids", [])
         evidence_matches = mapping.get("evidence_match", [])
         mismatch_flags = mapping.get("mismatch_flags", [])
-        verification_statuses = mapping.get("reference_verification_status", [])
+        verification_statuses = [_normalize_verification_status(status) for status in mapping.get("reference_verification_status", [])]
         best_match = _best_match(evidence_matches)
         methodology = _methodology_completeness(study, claim)
+        confirmed_rct = _confirmed_rct(study, mapping)
+        causal_language = _has_causal_language(claim.get("text", ""))
+        rewritten_claim_text = claim.get("text", "")
 
         if claim.get("finding_ids"):
             checks.append("has_findings")
@@ -236,12 +332,13 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
             "YES"
             if best_match in ACCEPTABLE_EVIDENCE
             and support_confidence in {"HIGH", "MODERATE"}
-            and "failed" not in verification_statuses
+            and all(status == "VERIFIED" for status in verification_statuses)
             else "NO"
         )
         direct_support = "YES" if mapped_reference_ids else "NO"
-        risk_of_bias = _risk_of_bias(claim, best_match, methodology)
-        overclaiming = _is_overclaiming(claim, best_match, study, methodology)
+        verified_references_present = any(status == "VERIFIED" for status in verification_statuses)
+        risk_of_bias = _risk_of_bias(claim, best_match, methodology, verified_references_present)
+        overclaiming = _is_overclaiming(claim, confirmed_rct)
         weak_support = (
             (not mapped_reference_ids)
             or best_match in WEAK_EVIDENCE
@@ -251,7 +348,7 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
 
         if weak_support:
             weak_claim_count += 1
-        if "reference_unverified" in mismatch_flags:
+        if "UNVERIFIED" in verification_statuses:
             checks.append("reference_verification_incomplete")
             failed_checks.append(
                 {
@@ -261,7 +358,7 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                     "severity": "warning",
                 }
             )
-        if "reference_verification_failed" in mismatch_flags or "failed" in verification_statuses:
+        if "FAILED" in verification_statuses or "reference_verification_failed" in mismatch_flags:
             status = "fail"
             failed_checks.append(
                 {
@@ -291,6 +388,7 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                     "severity": "fail",
                 }
             )
+
         missing_method_fields = [name for name, present in methodology.items() if not present]
         if missing_method_fields:
             checks.append("methodology_incomplete")
@@ -302,8 +400,11 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                     "severity": "warning",
                 }
             )
+
         if overclaiming == "YES":
             status = "fail"
+            checks.append("overclaiming_detected")
+            rewritten_claim_text = _rewrite_claim_text(claim.get("text", ""))
             failed_checks.append(
                 {
                     "claim_id": claim_id,
@@ -312,19 +413,19 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                     "severity": "fail",
                 }
             )
-        if overclaiming == "POSSIBLE":
-            checks.append("causal_language_not_confirmed")
-            failed_checks.append(
-                {
-                    "claim_id": claim_id,
-                    "code": "possible_overclaiming",
-                    "detail": "causal_language_not_supported_by_design_details",
-                    "severity": "warning",
-                }
-            )
         if evidence_level_ok == "NO":
             status = "fail"
 
+        claim_flags.append(
+            {
+                "has_unverified_reference": "UNVERIFIED" in verification_statuses,
+                "missing_methodological_data": bool(missing_method_fields),
+                "causal_without_confirmed_rct": causal_language and not confirmed_rct,
+                "has_failed_reference": "FAILED" in verification_statuses,
+                "non_verified_reference_present": any(status != "VERIFIED" for status in verification_statuses),
+            }
+        )
+        rewritten_claims.append({"claim_id": claim_id, "text": rewritten_claim_text})
         claim_audits.append(
             {
                 "claim_id": claim_id,
@@ -335,25 +436,15 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                 "risk_of_bias": risk_of_bias,
                 "overclaiming": overclaiming,
                 "support_confidence": support_confidence,
+                "reference_verification_status": verification_statuses,
+                "confirmed_rct": "YES" if confirmed_rct else "NO",
+                "rewritten_claim_text": rewritten_claim_text,
             }
         )
 
     weak_support_pct = _percent(weak_claim_count, len(claim_audits))
     high_quality_pct = _percent(high_quality_claim_count, len(claim_audits))
-    fail_count = len([f for f in failed_checks if f["severity"] == "fail"])
-    warning_count = len([f for f in failed_checks if f["severity"] == "warning"])
-    methodology_incomplete = any(not all(_methodology_completeness(study, claim).values()) for claim in claims)
-    has_unverified_reference = any(
-        "unverified" in mapping.get("reference_verification_status", []) for mapping in mappings
-    )
-    reliability_score = max(
-        0.0,
-        round(100 - (weak_support_pct * 0.7) - (fail_count * 8) - (warning_count * 2), 1),
-    )
-    if has_unverified_reference:
-        reliability_score = min(reliability_score, 60.0)
-    if methodology_incomplete:
-        reliability_score = min(reliability_score, 40.0)
+    reliability_score = _scientific_reliability_score(claim_flags)
 
     if weak_support_pct > 30.0:
         failed_checks.append(
@@ -379,4 +470,5 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
         },
         "claim_audits": claim_audits,
         "failed_checks": failed_checks,
+        "rewritten_claims": rewritten_claims,
     }
