@@ -209,6 +209,14 @@ def _scientific_reliability_score(claim_flags: List[Dict[str, bool]]) -> float:
     return reliability_score
 
 
+def _verification_integrity(has_unverified: bool, has_failed: bool) -> str:
+    if has_unverified:
+        return "LOW"
+    if has_failed:
+        return "MODERATE"
+    return "HIGH"
+
+
 def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> Dict[str, Any]:
     """Audit claim-to-reference consistency and scientific support."""
     claims = claims_json.get("claims", [])
@@ -224,6 +232,8 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
     high_quality_claim_count = 0
     claim_flags: List[Dict[str, bool]] = []
     rewritten_claims: List[Dict[str, str]] = []
+    any_unverified_reference = False
+    any_failed_reference = False
 
     seen_claim_ids: Set[str] = set()
     for claim_id in claim_ids:
@@ -360,7 +370,8 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
             and all(status == "VERIFIED" for status in verification_statuses)
             else "NO"
         )
-        direct_support = "YES" if mapped_reference_ids else "NO"
+        all_verified = bool(verification_statuses) and all(status == "VERIFIED" for status in verification_statuses)
+        direct_support = "YES" if (mapped_reference_ids and all_verified and best_match == "HIGH") else "NO"
         verified_references_present = any(status == "VERIFIED" for status in verification_statuses)
         risk_of_bias = _risk_of_bias(claim, best_match, methodology, verified_references_present)
         overclaiming = _is_overclaiming(claim, confirmed_rct)
@@ -374,13 +385,14 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
         if weak_support:
             weak_claim_count += 1
         if "UNVERIFIED" in verification_statuses:
+            any_unverified_reference = True
             checks.append("reference_verification_incomplete")
             failed_checks.append(
                 {
                     "claim_id": claim_id,
                     "code": "unverified_reference",
                     "detail": "reference_metadata_insufficient_for_independent_verification",
-                    "severity": "warning",
+                    "severity": "fail",
                 }
             )
         for raw_match, status_value in zip(raw_evidence_matches, verification_statuses):
@@ -390,10 +402,11 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
                         "claim_id": claim_id,
                         "code": "unverified_reference",
                         "detail": "high_evidence_downgraded_due_to_unverified_reference",
-                        "severity": "warning",
+                        "severity": "fail",
                     }
                 )
         if "FAILED" in verification_statuses or "reference_verification_failed" in mismatch_flags:
+            any_failed_reference = True
             status = "fail"
             failed_checks.append(
                 {
@@ -434,12 +447,13 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
             missing_method_fields.append("uncertainty")
         if missing_method_fields:
             checks.append("methodology_incomplete")
+            status = "fail"
             failed_checks.append(
                 {
                     "claim_id": claim_id,
                     "code": "incomplete_methods",
                     "detail": "missing_" + "_".join(missing_method_fields),
-                    "severity": "warning",
+                    "severity": "fail",
                 }
             )
 
@@ -487,6 +501,8 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
     weak_support_pct = _percent(weak_claim_count, len(claim_audits))
     high_quality_pct = _percent(high_quality_claim_count, len(claim_audits))
     reliability_score = _scientific_reliability_score(claim_flags)
+    if weak_support_pct == 100.0:
+        reliability_score = min(reliability_score, 30.0)
 
     if weak_support_pct > 30.0:
         failed_checks.append(
@@ -509,6 +525,7 @@ def audit_claims(claims_json: Dict[str, Any], mapping_json: Dict[str, Any]) -> D
             "high_quality_evidence_pct": high_quality_pct,
             "weakly_supported_pct": weak_support_pct,
             "scientific_reliability_score": reliability_score,
+            "verification_integrity": _verification_integrity(any_unverified_reference, any_failed_reference),
         },
         "claim_audits": claim_audits,
         "failed_checks": failed_checks,
