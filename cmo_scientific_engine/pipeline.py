@@ -7,6 +7,7 @@ from typing import Any, Dict
 from .auditor import audit_claims
 from .manuscript_generator import generate_claims
 from .reference_mapper import map_references
+from .pubmed_verifier import enrich_failed_references
 
 
 PipelineResult = Dict[str, Any]
@@ -15,7 +16,13 @@ PipelineResult = Dict[str, Any]
 def run_pipeline(payload: Dict[str, Any]) -> PipelineResult:
     """Run the full four-step scientific pipeline."""
     claims_json = generate_claims(payload)
-    mapping_json = map_references(claims_json, payload.get("reference_library", []))
+    reference_library = payload.get("reference_library", [])
+    mapping_json = map_references(claims_json, reference_library)
+    if payload.get("enable_pubmed_verifier", False):
+        mapping_json["claim_reference_map"] = enrich_failed_references(
+            mapping_json["claim_reference_map"],
+            reference_library,
+        )
     audit_json = audit_claims(claims_json, mapping_json)
     rewritten_by_id = {item["claim_id"]: item["text"] for item in audit_json.get("rewritten_claims", [])}
     audited_claims = []
