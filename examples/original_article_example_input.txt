@@ -1,0 +1,5 @@
+Pharmacist-led deprescribing program in polymedicated older adults.
+Objective: evaluate potentially inappropriate medications and 90-day adverse events.
+Prospective cohort in 112 hospitalized patients over 6 months.
+Primary outcome showed a 17% reduction in potentially inappropriate medications.
+Secondary outcome reported fewer emergency revisits (8% absolute difference).
