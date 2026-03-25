@@ -1,4 +1,4 @@
-"""Simple local Gradio app for the CMO Scientific Engine."""
+"""Experimental Gradio interface (non-official entrypoint; use run.py for daily use)."""
 
 from __future__ import annotations
 

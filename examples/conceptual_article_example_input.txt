@@ -1,0 +1,4 @@
+Conceptual framework for medication safety transitions after discharge.
+Objective: define a practical hospital-to-home safety model for high-risk prescriptions.
+The framework proposes three dimensions: reconciliation reliability, patient comprehension, and follow-up intensity.
+It outlines implementation barriers and measurable process indicators for pharmacy teams.
