@@ -1,4 +1,4 @@
-"""Official guided CLI entrypoint for Ramón's private scientific drafting assistant."""
+"""Legacy CLI helper for CMO Scientific Engine (browser app is official workflow)."""
 
 from __future__ import annotations
 

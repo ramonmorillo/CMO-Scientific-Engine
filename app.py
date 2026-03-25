@@ -1,4 +1,4 @@
-"""Experimental Gradio interface (non-official entrypoint; use run.py for daily use)."""
+"""Legacy experimental Gradio interface (browser app is official workflow)."""
 
 from __future__ import annotations
 
