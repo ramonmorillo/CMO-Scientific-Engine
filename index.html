@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CMO Scientific Engine — Browser MVP</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header card">
+        <h1>CMO Scientific Engine</h1>
+        <p>
+          Private browser-based drafting assistant for scientific manuscripts.
+          Paste your idea, choose format and tone, generate a conservative draft.
+        </p>
+      </header>
+
+      <section class="card controls">
+        <label for="freeText">Study/project idea</label>
+        <textarea
+          id="freeText"
+          rows="12"
+          placeholder="Paste clinical/scientific notes, objective, methods, and key findings..."
+        ></textarea>
+
+        <div class="grid">
+          <label>
+            Article type
+            <select id="articleType">
+              <option value="original_article">Original article</option>
+              <option value="narrative_review">Narrative review</option>
+              <option value="scoping_review">Scoping review</option>
+              <option value="conceptual_article">Conceptual article</option>
+              <option value="editorial_or_commentary">Editorial / commentary</option>
+            </select>
+          </label>
+
+          <label>
+            Language
+            <select id="language">
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+            </select>
+          </label>
+
+          <label>
+            Target journal or style
+            <input id="targetStyle" type="text" placeholder="e.g., Clinical hospital pharmacy journal" />
+          </label>
+
+          <label>
+            Tone
+            <select id="tone">
+              <option value="rigorous">Rigorous</option>
+              <option value="concise">Concise</option>
+              <option value="narrative">Narrative</option>
+              <option value="high-impact">High-impact</option>
+              <option value="balanced clinical">Balanced clinical</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="generateBtn" class="primary">Generate</button>
+          <button id="resetBtn" type="button">Reset</button>
+          <button id="copyBtn" type="button">Copy draft</button>
+          <button id="downloadBtn" type="button">Export .txt</button>
+        </div>
+        <p id="status" class="status">Ready.</p>
+      </section>
+
+      <section class="card outputs">
+        <h2>Manuscript draft</h2>
+        <pre id="draftOutput" class="output-block" aria-live="polite"></pre>
+      </section>
+
+      <section class="card outputs">
+        <h2>Audit and rigor panel</h2>
+        <pre id="auditOutput" class="output-block" aria-live="polite"></pre>
+      </section>
+
+      <footer class="footer">
+        <small>
+          Browser MVP. PubMed verification can be connected later using a Cloudflare Worker endpoint.
+        </small>
+      </footer>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,113 +1,126 @@
-# CMO Scientific Writing Assistant (Private Tool for Ramón)
+# CMO Scientific Engine (Browser MVP)
 
-This repository is now a **private, guided scientific drafting assistant** for one expert user: **Ramón**.
+CMO Scientific Engine is now a **browser-first private scientific drafting tool**.
 
-It is designed for hospital pharmacy and clinical research workflows where speed matters but scientific caution is essential.
+The official workflow is a static web app that runs without local Python installation. You can host it on GitHub Pages (recommended) and use it from any modern browser.
 
-## Who this is for
+---
 
-- Ramón (or one similarly experienced clinician-researcher).
-- Users who want to paste free text and receive a practical draft quickly.
-- Users who do **not** want to interact with JSON, modules, or pipeline internals.
+## Official workflow (no local Python required)
 
-## Official entrypoint (single source of truth)
+Open the browser app and:
 
-Use:
+1. Paste free text describing your study/project/article idea.
+2. Select article type:
+   - Original article
+   - Narrative review
+   - Scoping review
+   - Conceptual article
+   - Editorial/commentary
+3. Choose language (English/Spanish).
+4. Add target journal/style and tone.
+5. Click **Generate**.
 
-```bash
-python run.py
-```
+The app returns:
 
-`run.py` is the official and supported way to use this tool.
+- A readable manuscript draft.
+- A human-readable audit/rigor panel.
+- Explicit warnings on uncertainty, missing methods/details, and overclaiming risk.
 
-## What the guided flow does
+No JSON or pipeline jargon is required in end-user UX.
 
-The CLI wizard asks, step by step:
-1. Your free-text idea/notes (multi-line paste).
-2. Article type:
-   - original article
-   - narrative review
-   - scoping review
-   - conceptual article
-   - editorial/commentary
-3. Output language (Spanish or English).
-4. Target journal/style.
-5. Desired tone.
-6. Whether PubMed verification should be attempted.
-7. Final confirmation before generation.
+---
 
-Then it generates a readable draft and saves output files.
+## Project structure
 
-## Output files
+### Browser app (primary)
 
-Each run creates a timestamped folder inside `outputs/`.
+- `index.html` — main UI
+- `styles.css` — sober academic styling
+- `app.js` — browser logic (ingestion heuristics, article routing, draft generation, audit panel)
 
-Minimum files:
-- `manuscript.md` (user-facing draft)
-- `audit_report.md` (human-readable quality review)
-- `generation_metadata.json` (internal run metadata)
+### Python modules (retained as legacy/specification layer)
 
-If PubMed verification is enabled:
-- `pubmed_check.json`
+These modules are preserved and continue to define core scientific behavior that informed the browser MVP migration:
 
-## Quick start
+- `cmo_scientific_engine/free_text_ingest.py`
+- `cmo_scientific_engine/article_strategy_engine.py`
+- `cmo_scientific_engine/original_article_generator.py`
+- `cmo_scientific_engine/auditor.py`
+- `cmo_scientific_engine/pubmed_verifier.py`
+- `cmo_scientific_engine/pipeline.py`
 
-1. Create/activate your Python environment.
-2. Install dependencies from your existing project setup (if any).
-3. Run:
+They are useful as:
 
-```bash
-python run.py
-```
+- Ground-truth specification for heuristics.
+- Future backend/service implementation source.
+- Regression reference when strengthening scientific rigor checks.
 
-## Realistic usage example
+---
 
-When prompted, paste something like:
+## Quick start (GitHub Pages / static hosting)
 
-```text
-Hospital pharmacist intervention for high-risk antibiotic stewardship.
-Objective: evaluate 30-day readmission and treatment appropriateness in adults with severe infections.
-Observational cohort in 148 patients over 12 months.
-Primary outcome showed a 9% absolute reduction in readmissions.
-Secondary outcome suggested improved guideline adherence.
-```
+### Option A: Open locally in browser
 
-Then choose:
-- Type: Original article
-- Language: Spanish
-- Target style: Clinical hospital pharmacy journal
-- Tone: Rigorous
-- PubMed check: Yes
+Open `index.html` directly in a browser.
 
-You will receive saved files under `outputs/<timestamp>_original-article/`.
+### Option B: Publish on GitHub Pages
 
-## What this tool can do
+1. Push repository to GitHub.
+2. In repo settings, enable **Pages**.
+3. Select deployment from the repository root (or configured static folder).
+4. Open the generated URL.
 
-- Produce a conservative first draft from unstructured scientific notes.
-- Keep article generation practical and fast.
-- Flag missing methodological details and possible overclaiming.
-- Provide optional PubMed verification attempts for extracted findings.
+No Python/Node runtime is required for end users.
 
-## What this tool cannot do
+---
 
-- It cannot replace protocol design, statistical review, or peer review.
-- It cannot invent valid data where source details are missing.
-- It cannot guarantee PubMed verification (network/API ambiguity can occur).
+## PubMed and network verification (optional layer)
+
+The MVP keeps PubMed verification optional and decoupled.
+
+- `app.js` includes a configurable `PUBMED_CONFIG.workerEndpoint`.
+- If connected to a Cloudflare Worker (or similar proxy), browser app can send findings for remote verification.
+- If not configured, core drafting and audit still run fully in-browser.
+
+This preserves privacy-friendly offline-ish drafting while allowing future evidence checks.
+
+---
+
+## Legacy entrypoints status
+
+- `run.py`: **legacy CLI helper**, non-primary for end users.
+- `app.py`: **experimental legacy interface**, non-primary.
+
+Browser app is the official product path.
+
+---
+
+## Current MVP scope
+
+Included now:
+
+- Browser-first UX
+- Free-text parsing heuristics
+- Article-type routing signals
+- Conservative draft generation
+- Audit/rigor panel with missing elements + overclaiming checks
+- Copy/export convenience actions
+
+Pending for later iterations:
+
+- Stronger methodology extraction parity with all Python behaviors
+- Full PubMed worker implementation + robust citation matching
+- Advanced audit scoring and traceable evidence linking
+- Optional backend orchestration when required
+
+---
 
 ## Scientific safety stance
 
-This assistant is intentionally conservative:
-- No fabricated data.
-- No false certainty.
-- Missing methods/details are surfaced explicitly.
-- Claims should be interpreted as draft language pending expert validation.
+This tool is intentionally conservative:
 
-## About `app.py`
-
-`app.py` remains in the repository as an **experimental interface**.
-It is not the official workflow.
-For daily/private use, run only:
-
-```bash
-python run.py
-```
+- Does not fabricate data.
+- Surfaces uncertainty and missing methodological details.
+- Flags potential overclaiming.
+- Produces drafts that require expert validation and peer-review-grade refinement.
