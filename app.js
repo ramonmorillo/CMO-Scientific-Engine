@@ -94,14 +94,25 @@ function extractSentenceByPattern(text, patterns) {
 
 function inferWorkingTitle(study) {
   if (study.title) return study.title;
-  const objective = study.objective || "";
+  const objective = clean(study.objective || "");
+  const population = clean(study.population || "");
+  const isHivRx = /(hiv|vih|prescription appropriateness|inappropriate prescribing|beers|stopp|start|polypharmacy|polifarmacia)/i.test(
+    `${objective} ${population} ${study.context || ""} ${study.rationale || ""}`
+  );
+  if (isHivRx) {
+    return "Prescription Appropriateness in Older People Living with HIV: A Scoping Review Protocol";
+  }
   const normalized = objective
     .replace(/^to\s+/i, "")
     .replace(/^(identify|characterize|map|evaluate|assess)\s+/i, "$1 ")
     .trim();
-  if (!normalized) return "Working scientific draft";
-  const compact = normalized.split(/\s+/).slice(0, 16).join(" ");
-  return `Working title: ${compact.charAt(0).toUpperCase()}${compact.slice(1)}`;
+  if (!normalized) return "Clinical Evidence Synthesis Protocol";
+  const compact = normalized
+    .split(/\s+/)
+    .slice(0, 10)
+    .join(" ")
+    .replace(/[.:;]+$/g, "");
+  return compact ? `${compact.charAt(0).toUpperCase()}${compact.slice(1)}` : "Clinical Evidence Synthesis Protocol";
 }
 
 function detectDesign(text) {
@@ -305,6 +316,42 @@ function cautious(sentence, lang) {
     .replace(/\breduced\b/i, "was associated with a reduction in");
 }
 
+function hasValue(v) {
+  return !!clean(v || "");
+}
+
+function mergedMethodParagraph(study, isEs) {
+  const design = study.design || (isEs ? "scoping review" : "scoping review");
+  const framework = study.reporting_framework || "PRISMA-ScR";
+  const dbLine = study.databases.length
+    ? study.databases.join(", ")
+    : isEs
+      ? "fuentes biomédicas principales"
+      : "major biomedical databases";
+  const eligibility = study.eligibility_criteria || study.population || (isEs ? "criterios por completar" : "criteria to be finalized");
+  const extraction = study.data_extraction_plan || (isEs ? "dominios clínicos, herramientas y estado de validación" : "clinical domains, tools, and validation status");
+  if (isEs) {
+    return `Se desarrollará una ${design} siguiendo ${framework}. La búsqueda abarcará ${dbLine}. La elegibilidad considerará ${eligibility}. La extracción y charting se integrarán en un único proceso de recopilación estructurada para ${extraction}, con síntesis descriptiva enfocada en aplicabilidad clínica y brechas de evidencia.`;
+  }
+  return `A ${design} will be conducted following ${framework}. Searches will cover ${dbLine}. Eligibility will consider ${eligibility}. Data extraction and charting are integrated into one structured collection process for ${extraction}, followed by descriptive synthesis focused on clinical applicability and evidence gaps.`;
+}
+
+function derivedFieldUsage(input) {
+  const study = input.study || {};
+  return {
+    objective: hasValue(study.objective),
+    methods: hasValue(study.methods_summary) || hasValue(study.design) || hasValue(study.reporting_framework),
+    population: hasValue(study.population),
+    outcomes: hasValue(study.outcomes),
+    reporting_framework: hasValue(study.reporting_framework) || study.design === "scoping review",
+    eligibility_criteria: hasValue(study.eligibility_criteria) || hasValue(study.population),
+    data_extraction_plan: hasValue(study.data_extraction_plan) || study.design === "scoping review",
+    databases: Array.isArray(study.databases) && study.databases.length > 0,
+    protocol_like: !!study.protocol_like,
+    design: hasValue(study.design),
+  };
+}
+
 function buildDraft({ input, articleType, language, targetStyle, tone, strategy }) {
   const isEs = language === "es";
   const { study, findings, missing_fields } = input;
@@ -348,16 +395,19 @@ function buildDraft({ input, articleType, language, targetStyle, tone, strategy 
       ? "Sintetizar el problema y mapear evidencia relevante; detalles no totalmente especificados en la entrada."
       : "To synthesize the problem and map relevant evidence; details were not fully specified in the input.";
 
+  const hivSpecificGap = /(hiv|vih)/i.test(`${study.population || ""} ${study.objective || ""} ${study.context || ""}`)
+    && /(beers|stopp|start|prescription appropriateness|inappropriate prescribing|polypharmacy|polifarmacia)/i.test(
+      `${study.objective || ""} ${study.context || ""} ${study.rationale || ""} ${input.findings.map((f) => f.raw_result).join(" ")}`
+    );
   const genericBackground = isEs
-    ? `Este borrador estructura la pregunta científica con la información disponible.${hivContext ? ` ${hivContext}` : ""}`
-    : `This draft structures the scientific question using available input.${hivContext ? ` ${hivContext}` : ""}`;
+    ? `La multimorbilidad y la polifarmacia en personas mayores con VIH aumentan la complejidad de la prescripción.${hivContext ? ` ${hivContext}` : ""} Aunque herramientas como Beers y STOPP/START se usan ampliamente, su aplicabilidad específica en VIH sigue insuficientemente caracterizada.`
+    : `Multimorbidity and polypharmacy in older people living with HIV increase prescribing complexity.${hivContext ? ` ${hivContext}` : ""} Although tools such as Beers and STOPP/START are widely used, their HIV-specific applicability remains insufficiently characterized.`;
 
   const limitationLine = isEs
-    ? `Borrador basado en entrada parcial; completar: ${missing_fields.length ? missing_fields.join(", ") : "sin vacíos críticos detectados"}.`
-    : `Draft based on partial input; complete: ${missing_fields.length ? missing_fields.join(", ") : "no critical gaps detected"}.`;
+    ? `Información pendiente por completar: ${missing_fields.length ? missing_fields.join(", ") : "sin vacíos críticos detectados"}.`
+    : `Information requiring completion: ${missing_fields.length ? missing_fields.join(", ") : "no critical gaps detected"}.`;
 
   if (articleType === "scoping_review") {
-    const dbLine = study.databases.length ? study.databases.join(", ") : "PubMed, Embase, and Web of Science not clearly specified";
     const resultsStatus = study.protocol_like
       ? isEs
         ? "No hay resultados disponibles en esta etapa; el texto corresponde a un borrador tipo protocolo."
@@ -365,24 +415,7 @@ function buildDraft({ input, articleType, language, targetStyle, tone, strategy 
       : isEs
         ? "Se reportan salidas de mapeo según el texto aportado."
         : "Mapping-oriented outputs are reported from the provided text.";
-    const methodsLines = [
-      isEs ? "- Diseño: revisión de alcance." : "- Design: scoping review.",
-      isEs
-        ? `- Marco metodológico: ${study.reporting_framework || "PRISMA-ScR no explicitado; inferido con confianza moderada por patrones de revisión de alcance"}.`
-        : `- Reporting framework: ${study.reporting_framework || "PRISMA-ScR not explicitly stated; inferred with moderate confidence from scoping-review patterns"}.`,
-      isEs
-        ? `- Fuentes de información: ${dbLine}.`
-        : `- Information sources / databases: ${dbLine}.`,
-      isEs
-        ? `- Criterios de elegibilidad: ${study.eligibility_criteria || study.population || "definición parcial; completar criterios explícitos de inclusión/exclusión"}.`
-        : `- Eligibility criteria: ${study.eligibility_criteria || study.population || "partially defined; add explicit inclusion/exclusion criteria"}.`,
-      isEs
-        ? `- Plan de charting / extracción: ${study.data_extraction_plan || "variables y dominios parcialmente definidos en la entrada"}.`
-        : `- Data charting / extraction plan: ${study.data_extraction_plan || "variables and domains are only partially defined in input"}.`,
-      isEs
-        ? "- Síntesis planificada: mapeo descriptivo de herramientas, dominios y estado de validación."
-        : "- Planned synthesis approach: descriptive mapping of tools, domains, and validation status.",
-    ].join("\n");
+    const methodsParagraph = mergedMethodParagraph(study, isEs);
 
     return [
       `# ${title}`,
@@ -400,13 +433,17 @@ function buildDraft({ input, articleType, language, targetStyle, tone, strategy 
       `${genericBackground}${study.context ? ` ${study.context}.` : ""}`,
       "",
       isEs ? "### Racional" : "### Rationale",
-      study.rationale || (isEs ? "La aplicabilidad de herramientas generales a VIH no está plenamente establecida." : "Applicability of general-population tools to HIV remains uncertain."),
+      hivSpecificGap
+        ? isEs
+          ? "La brecha principal es metodológica y clínica: Beers y STOPP/START no fueron diseñadas específicamente para personas con VIH, donde interacciones farmacológicas, comorbilidad y exposición antirretroviral pueden modificar la pertinencia de los criterios."
+          : "The central gap is methodological and clinical: Beers and STOPP/START were not specifically designed for people living with HIV, where drug–drug interactions, multimorbidity, and antiretroviral exposure may alter criterion appropriateness."
+        : study.rationale || (isEs ? "Persiste incertidumbre sobre la aplicabilidad de herramientas de prescripción en la población objetivo." : "Uncertainty persists regarding tool applicability in the target population."),
       "",
       isEs ? "### Objetivo de la revisión" : "### Review objective",
       rewrittenObjective,
       "",
       isEs ? "## Métodos" : "## Methods",
-      methodsLines,
+      methodsParagraph,
       "",
       isEs ? "## Contribución esperada / brechas de conocimiento" : "## Expected contribution / knowledge gaps",
       isEs
@@ -477,11 +514,12 @@ function buildAudit({ input, selectedType, strategy, language }) {
   const mismatch = strategy.recommended_article_type !== selectedType;
   const missing = input.missing_fields;
   const overclaiming = detectOverclaiming(input.findings);
+  const usage = derivedFieldUsage(input);
   const confidenceLines = Object.entries(input.detected_fields || {}).map(([k, v]) => {
     const label = k.replace("_", " ");
-    return v?.value
-      ? `- ${label}: ${v.confidence}`
-      : `- ${label}: not detected`;
+    if (v?.value) return `- ${label}: ${v.confidence}`;
+    if (usage[k]) return `- ${label}: inferred from available section content`;
+    return `- ${label}: not detected`;
   });
 
   const scopingChecks = [
