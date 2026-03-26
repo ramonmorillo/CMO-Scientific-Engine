@@ -42,6 +42,22 @@ function firstMatch(text, patterns) {
   return null;
 }
 
+function detectField(text, detectors) {
+  let best = { value: null, confidence: "none", evidence: "" };
+  for (const d of detectors) {
+    const match = text.match(d.pattern);
+    if (match && match[1]) {
+      const value = clean(match[1]);
+      if (!value) continue;
+      const candidate = { value, confidence: d.confidence, evidence: d.evidence };
+      if (best.confidence === "none" || (best.confidence === "moderate" && d.confidence === "high")) {
+        best = candidate;
+      }
+    }
+  }
+  return best;
+}
+
 function extractTitle(raw) {
   const firstLine = (raw || "").trim().split("\n")[0]?.trim() || "";
   if (!firstLine || firstLine.split(/\s+/).length > 18 || firstLine.endsWith(".")) return null;
@@ -92,24 +108,47 @@ function ingestFreeText(rawText) {
   const normalized = clean(rawText);
   if (!normalized) throw new Error("Please provide text before generating.");
 
+  const objective = detectField(normalized, [
+    { pattern: /(?:objective|aim|primary objective)\s*[:\-]\s*([^\n\.]+)/i, confidence: "high", evidence: "explicit objective label" },
+    { pattern: /(?:we aim to|we aimed to|this study aimed to|this review aims to)\s+([^\.]+)/i, confidence: "high", evidence: "authorial objective phrase" },
+    { pattern: /(?:objetivo|propósito|proposito)\s*[:\-]\s*([^\n\.]+)/i, confidence: "high", evidence: "explicit objective label" },
+    { pattern: /(?:el objetivo fue|el estudio busc[oó]|esta revisión busca)\s+([^\.]+)/i, confidence: "high", evidence: "authorial objective phrase" },
+    { pattern: /(?:to evaluate|to assess|to explore|to describe)\s+([^\.]{12,150})/i, confidence: "moderate", evidence: "infinitive objective phrase" },
+  ]);
+
+  const methods = detectField(normalized, [
+    { pattern: /(?:methods?|methodology)\s*[:\-]\s*([^\n]+)/i, confidence: "high", evidence: "explicit methods label" },
+    { pattern: /(?:we conducted|we performed|we carried out)\s+([^\.]+)/i, confidence: "moderate", evidence: "authorial methods phrase" },
+    { pattern: /(?:métodos?|metodología)\s*[:\-]\s*([^\n]+)/i, confidence: "high", evidence: "explicit methods label" },
+    { pattern: /(?:se realiz[oó]|se llev[oó] a cabo)\s+([^\.]+)/i, confidence: "moderate", evidence: "authorial methods phrase" },
+  ]);
+
+  const population = detectField(normalized, [
+    { pattern: /(?:population|participants?|patients?|subjects?)\s*[:\-]\s*([^\n\.]+)/i, confidence: "high", evidence: "explicit population label" },
+    { pattern: /(?:in|among)\s+([^\.;,\n]{5,120}?(?:patients|adults|children|participants|subjects|people living with hiv|plwh))/i, confidence: "moderate", evidence: "population phrase in sentence" },
+    { pattern: /(?:población|participantes|pacientes|sujetos)\s*[:\-]\s*([^\n\.]+)/i, confidence: "high", evidence: "explicit population label" },
+    { pattern: /(?:en|entre)\s+([^\.;,\n]{5,120}?(?:pacientes|adultos|niños|ninos|participantes|personas con vih))/i, confidence: "moderate", evidence: "population phrase in sentence" },
+  ]);
+
+  const outcomes = detectField(normalized, [
+    { pattern: /(?:outcomes?|endpoints?)\s*[:\-]\s*([^\n\.]+)/i, confidence: "high", evidence: "explicit outcome label" },
+    { pattern: /(?:primary outcome|secondary outcome)\s*[:\-]?\s*([^\n\.]+)/i, confidence: "high", evidence: "explicit outcome phrase" },
+    { pattern: /(?:resulted in|associated with|impact on)\s+([^\.]{8,120})/i, confidence: "moderate", evidence: "outcome-bearing result phrase" },
+    { pattern: /(?:desenlaces?|resultados?)\s*[:\-]\s*([^\n\.]+)/i, confidence: "high", evidence: "explicit outcome label" },
+  ]);
+
   const study = {
     study_id: "AUTO-001",
     title: extractTitle(rawText),
-    objective: firstMatch(normalized, [
-      /(?:objective|aim)\s*[:\-]\s*([^\n\.]+)/i,
-      /(?:objetivo|propósito|proposito)\s*[:\-]\s*([^\n\.]+)/i,
-      /(?:we aimed to|this study aimed to)\s+([^\.]+)/i,
-      /(?:el objetivo fue|el estudio busc[oó])\s+([^\.]+)/i,
-    ]),
+    objective: objective.value,
     design: detectDesign(normalized),
-    population: firstMatch(normalized, [
-      /(?:in|among)\s+([^\.;,]{5,80}?(?:patients|adults|children|participants|subjects))/i,
-      /(?:en|entre)\s+([^\.;,]{5,80}?(?:pacientes|adultos|niños|ninos|participantes|sujetos))/i,
-    ]),
+    methods_summary: methods.value,
+    population: population.value,
     duration: firstMatch(normalized, [
       /\b(\d+\s+(?:day|days|week|weeks|month|months|year|years))\b/i,
       /\b(\d+\s+(?:día|días|semana|semanas|mes|meses|año|años))\b/i,
     ]),
+    outcomes: outcomes.value,
   };
 
   const findings = sentenceCandidates(normalized)
@@ -121,10 +160,18 @@ function ingestFreeText(rawText) {
       uncertainty: uncertainty(s),
     }));
 
-  const missingFields = ["title", "objective", "design", "population", "duration"].filter((f) => !study[f]);
-  if (!findings.length) missingFields.push("findings");
+  const detected_fields = {
+    objective: objective,
+    methods: methods,
+    population: population,
+    outcomes: outcomes,
+    design: { value: study.design, confidence: study.design ? "moderate" : "none", evidence: study.design ? "design keyword match" : "" },
+  };
 
-  return { study, findings, missing_fields: missingFields };
+  const missingFields = ["title", "objective", "design", "population", "duration", "outcomes"].filter((f) => !study[f]);
+  if (!findings.length) missingFields.push("findings_quantitative");
+
+  return { study, findings, missing_fields: missingFields, detected_fields };
 }
 
 function recommendArticleStrategy(text) {
@@ -187,45 +234,100 @@ function buildDraft({ input, articleType, language, targetStyle, tone, strategy 
     study.title ||
     (isEs ? "Borrador científico privado" : "Private scientific draft");
 
-  const sectionNames = isEs
-    ? {
-        intro: "Introducción",
-        methods: "Métodos",
-        results: "Resultados",
-        discussion: "Discusión",
-      }
-    : {
-        intro: "Introduction",
-        methods: "Methods",
-        results: "Results",
-        discussion: "Discussion",
-      };
-
-  const baseIntro = isEs
-    ? `Objetivo: ${study.objective || "no explícito"}. Contexto preliminar a validar.`
-    : `Objective: ${study.objective || "not explicit"}. Preliminary context pending validation.`;
-
-  const baseMethods = isEs
-    ? `Diseño: ${study.design || "no especificado"}. Población: ${study.population || "no especificada"}. Duración: ${study.duration || "no especificada"}.`
-    : `Design: ${study.design || "not specified"}. Population: ${study.population || "not specified"}. Duration: ${study.duration || "not specified"}.`;
-
   const findingsText = findings.length
     ? findings.map((f) => `- ${cautious(f.raw_result, language)}`).join("\n")
     : isEs
-      ? "- No se detectaron hallazgos cuantificables en la entrada."
+      ? "- No se aportaron resultados cuantitativos; se reportan salidas esperadas."
       : "- No quantifiable findings were detected in the input.";
-
-  const discussion = isEs
-    ? "Interpretación conservadora: este borrador no sustituye validación metodológica, estadística ni revisión por pares."
-    : "Conservative interpretation: this draft does not replace methodological/statistical validation or peer review.";
 
   const typeLine = isEs
     ? `Tipo seleccionado: ${ARTICLE_LABELS[articleType]} | Tipo detectado: ${ARTICLE_LABELS[strategy.recommended_article_type]}`
     : `Selected type: ${ARTICLE_LABELS[articleType]} | Detected type: ${ARTICLE_LABELS[strategy.recommended_article_type]}`;
 
+  const fieldConfidence = Object.entries(input.detected_fields || {})
+    .map(([k, v]) => {
+      const label = k.replace("_", " ");
+      if (!v?.value) {
+        return isEs
+          ? `- ${label}: no detectado; se usó redacción estructural con incertidumbre explícita.`
+          : `- ${label}: not detected; structured drafting used explicit uncertainty.`;
+      }
+      return isEs
+        ? `- ${label}: detectado con confianza ${v.confidence}; reescrito en el borrador.`
+        : `- ${label}: detected with ${v.confidence} confidence; rewritten below.`;
+    })
+    .join("\n");
+
+  const hivContext = /(hiv|vih|antiretroviral|polypharmacy|polifarmacia|prescription appropriateness|inappropriate prescribing|beers|stopp|start)/i.test(
+    `${study.title || ""} ${study.objective || ""} ${study.population || ""} ${input.findings.map((f) => f.raw_result).join(" ")}`
+  )
+    ? isEs
+      ? "La población con VIH puede presentar polifarmacia, interacciones farmacológicas y riesgo de prescripción potencialmente inapropiada (p. ej., criterios Beers o STOPP/START)."
+      : "People living with HIV may face polypharmacy, drug–drug interactions, and potentially inappropriate prescribing risk (e.g., Beers or STOPP/START frameworks)."
+    : "";
+
+  const rewrittenObjective = study.objective
+    ? study.objective
+    : isEs
+      ? "Sintetizar el problema y mapear evidencia relevante; detalles no totalmente especificados en la entrada."
+      : "To synthesize the problem and map relevant evidence; details were not fully specified in the input.";
+
+  const genericBackground = isEs
+    ? `Este borrador estructura la pregunta científica con la información disponible.${hivContext ? ` ${hivContext}` : ""}`
+    : `This draft structures the scientific question using available input.${hivContext ? ` ${hivContext}` : ""}`;
+
   const limitationLine = isEs
-    ? `Elementos faltantes: ${missing_fields.length ? missing_fields.join(", ") : "ninguno crítico detectado"}.`
-    : `Missing elements: ${missing_fields.length ? missing_fields.join(", ") : "no critical gaps detected"}.`;
+    ? `Borrador basado en entrada parcial; completar: ${missing_fields.length ? missing_fields.join(", ") : "sin vacíos críticos detectados"}.`
+    : `Draft based on partial input; complete: ${missing_fields.length ? missing_fields.join(", ") : "no critical gaps detected"}.`;
+
+  if (articleType === "scoping_review") {
+    const methodsLines = [
+      isEs ? "- Diseño: revisión de alcance." : "- Design: scoping review.",
+      isEs ? "- Marco metodológico: PRISMA-ScR." : "- Framework: PRISMA-ScR.",
+      isEs
+        ? `- Fuentes de información: ${study.methods_summary || "bases de datos no totalmente especificadas en la entrada; sugerido PubMed/Embase/Scopus."}`
+        : `- Information sources: ${study.methods_summary || "databases not fully specified in input; suggested PubMed/Embase/Scopus."}`,
+      isEs
+        ? `- Criterios de elegibilidad: ${study.population || "población objetivo no completamente definida"}; incluir tipo de estudio y periodo.`
+        : `- Eligibility criteria: ${study.population || "target population not fully defined"}; include study type and timeframe.`,
+      isEs
+        ? `- Estrategia de charting de datos: extracción por dos revisores, variables clínicas y desenlaces (${study.outcomes || "desenlaces no totalmente especificados"}).`
+        : `- Data charting strategy: dual-reviewer extraction of clinical variables and outcomes (${study.outcomes || "outcomes not fully specified"}).`,
+    ].join("\n");
+
+    return [
+      `# ${title}`,
+      "",
+      isEs ? "## Resumen operativo" : "## Operational summary",
+      typeLine,
+      `${isEs ? "Idioma" : "Language"}: ${language === "es" ? "Spanish" : "English"}.`,
+      `${isEs ? "Estilo objetivo" : "Target style"}: ${targetStyle || (isEs ? "no especificado" : "not specified")}.`,
+      `${isEs ? "Tono" : "Tone"}: ${tone}.`,
+      "",
+      isEs ? "## Estado de extracción y confianza" : "## Extraction and confidence status",
+      fieldConfidence,
+      "",
+      isEs ? "## Antecedentes y justificación" : "## Background and rationale",
+      genericBackground,
+      "",
+      isEs ? "## Objetivo" : "## Objective",
+      rewrittenObjective,
+      "",
+      isEs ? "## Métodos" : "## Methods",
+      methodsLines,
+      "",
+      isEs ? "## Salidas esperadas" : "## Expected outputs",
+      findingsText,
+      "",
+      isEs ? "## Discusión" : "## Discussion",
+      isEs
+        ? "Se anticipa heterogeneidad en definiciones de adecuación de prescripción, métricas de interacción y desenlaces clínicos; el mapeo permitirá identificar vacíos de evidencia."
+        : "Heterogeneity is expected across prescribing-appropriateness definitions, interaction metrics, and clinical endpoints; mapping should identify evidence gaps.",
+      "",
+      isEs ? "## Limitaciones" : "## Limitations",
+      limitationLine,
+    ].join("\n");
+  }
 
   const draft = [
     `# ${title}`,
@@ -236,17 +338,27 @@ function buildDraft({ input, articleType, language, targetStyle, tone, strategy 
     `${isEs ? "Estilo objetivo" : "Target style"}: ${targetStyle || (isEs ? "no especificado" : "not specified")}.`,
     `${isEs ? "Tono" : "Tone"}: ${tone}.`,
     "",
-    `## ${sectionNames.intro}`,
-    baseIntro,
+    isEs ? "## Estado de extracción y confianza" : "## Extraction and confidence status",
+    fieldConfidence,
     "",
-    `## ${sectionNames.methods}`,
-    baseMethods,
+    isEs ? "## Introducción" : "## Introduction",
+    genericBackground,
     "",
-    `## ${sectionNames.results}`,
+    isEs ? "## Objetivo" : "## Objective",
+    rewrittenObjective,
+    "",
+    isEs ? "## Métodos" : "## Methods",
+    isEs
+      ? `Diseño: ${study.design || "no totalmente especificado; inferido según entrada"}. Población: ${study.population || "definición parcial en la entrada"}. Duración: ${study.duration || "no detallada en la entrada"}.`
+      : `Design: ${study.design || "not fully specified; inferred from input"}. Population: ${study.population || "partially defined in input"}. Duration: ${study.duration || "not detailed in input"}.`,
+    "",
+    isEs ? "## Resultados / salidas esperadas" : "## Results / Expected outputs",
     findingsText,
     "",
-    `## ${sectionNames.discussion}`,
-    discussion,
+    isEs ? "## Discusión" : "## Discussion",
+    isEs
+      ? "Interpretación conservadora con construcción activa: se prioriza coherencia científica y se explicitan incertidumbres cuando faltan especificaciones."
+      : "Conservative interpretation with constructive drafting: scientific coherence is prioritized, and uncertainty is explicit where specifications are missing.",
     "",
     isEs ? "## Limitaciones" : "## Limitations",
     limitationLine,
@@ -267,6 +379,12 @@ function buildAudit({ input, selectedType, strategy, language }) {
   const mismatch = strategy.recommended_article_type !== selectedType;
   const missing = input.missing_fields;
   const overclaiming = detectOverclaiming(input.findings);
+  const confidenceLines = Object.entries(input.detected_fields || {}).map(([k, v]) => {
+    const label = k.replace("_", " ");
+    return v?.value
+      ? `- ${label}: ${v.confidence}`
+      : `- ${label}: not detected`;
+  });
 
   const lines = isEs
     ? [
@@ -279,6 +397,9 @@ function buildAudit({ input, selectedType, strategy, language }) {
         "",
         "## Elementos metodológicos faltantes",
         ...(missing.length ? missing.map((m) => `- ${m}`) : ["- No faltantes críticos detectados por heurísticas."]),
+        "",
+        "## Confianza de extracción",
+        ...(confidenceLines.length ? confidenceLines : ["- Sin datos de confianza disponibles."]),
         "",
         "## Riesgo de sobreafirmación",
         ...overclaiming.map((o) => `- ${o}`),
@@ -303,6 +424,9 @@ function buildAudit({ input, selectedType, strategy, language }) {
         "",
         "## Missing methodological elements",
         ...(missing.length ? missing.map((m) => `- ${m}`) : ["- No critical gaps detected by heuristics."]),
+        "",
+        "## Extraction confidence",
+        ...(confidenceLines.length ? confidenceLines : ["- No confidence metadata available."]),
         "",
         "## Overclaiming risk",
         ...overclaiming.map((o) => `- ${o}`),
