@@ -64,11 +64,52 @@ function extractTitle(raw) {
   return clean(firstLine);
 }
 
+function splitSentences(text) {
+  return (text || "")
+    .split(/\n+|(?<!\d)\.(?!\d)|[!?;]+/)
+    .map(clean)
+    .filter(Boolean);
+}
+
+function extractDatabases(text) {
+  const labels = [
+    { pattern: /\bpubmed\b/i, name: "PubMed" },
+    { pattern: /\bembase\b/i, name: "Embase" },
+    { pattern: /\bweb of science\b/i, name: "Web of Science" },
+    { pattern: /\bscopus\b/i, name: "Scopus" },
+    { pattern: /\bcochrane\b/i, name: "Cochrane" },
+  ];
+  return labels.filter((d) => d.pattern.test(text || "")).map((d) => d.name);
+}
+
+function extractSentenceByPattern(text, patterns) {
+  const sentences = splitSentences(text);
+  for (const sentence of sentences) {
+    for (const pattern of patterns) {
+      if (pattern.test(sentence)) return sentence;
+    }
+  }
+  return null;
+}
+
+function inferWorkingTitle(study) {
+  if (study.title) return study.title;
+  const objective = study.objective || "";
+  const normalized = objective
+    .replace(/^to\s+/i, "")
+    .replace(/^(identify|characterize|map|evaluate|assess)\s+/i, "$1 ")
+    .trim();
+  if (!normalized) return "Working scientific draft";
+  const compact = normalized.split(/\s+/).slice(0, 16).join(" ");
+  return `Working title: ${compact.charAt(0).toUpperCase()}${compact.slice(1)}`;
+}
+
 function detectDesign(text) {
   const patterns = [
+    [/\b(scoping review|review will follow prisma-scr|prisma-scr|revisión de alcance|revision de alcance)\b/i, "scoping review"],
+    [/\b(systematic review|meta-analysis|revisión sistemática|revision sistematica|metaanálisis|metaanalisis)\b/i, "evidence synthesis"],
     [/\b(randomized controlled trial|randomised controlled trial|rct|ensayo aleatorizado|eca)\b/i, "randomized controlled trial"],
     [/\b(observational study|cohort study|case-control|cross-sectional|estudio observacional|cohorte|casos y controles|transversal)\b/i, "observational study"],
-    [/\b(systematic review|meta-analysis|revisión sistemática|revision sistematica|metaanálisis|metaanalisis)\b/i, "evidence synthesis"],
   ];
   for (const [pattern, label] of patterns) {
     if (pattern.test(text)) return label;
@@ -110,7 +151,8 @@ function ingestFreeText(rawText) {
 
   const objective = detectField(normalized, [
     { pattern: /(?:objective|aim|primary objective)\s*[:\-]\s*([^\n\.]+)/i, confidence: "high", evidence: "explicit objective label" },
-    { pattern: /(?:we aim to|we aimed to|this study aimed to|this review aims to)\s+([^\.]+)/i, confidence: "high", evidence: "authorial objective phrase" },
+    { pattern: /(?:we aim to|we aimed to|this study aimed to|this review aims to|this scoping review will)\s+([^\.]+)/i, confidence: "high", evidence: "authorial objective phrase" },
+    { pattern: /(?:the objective is to|objective is to)\s+([^\.]+)/i, confidence: "high", evidence: "explicit objective sentence" },
     { pattern: /(?:objetivo|propósito|proposito)\s*[:\-]\s*([^\n\.]+)/i, confidence: "high", evidence: "explicit objective label" },
     { pattern: /(?:el objetivo fue|el estudio busc[oó]|esta revisión busca)\s+([^\.]+)/i, confidence: "high", evidence: "authorial objective phrase" },
     { pattern: /(?:to evaluate|to assess|to explore|to describe)\s+([^\.]{12,150})/i, confidence: "moderate", evidence: "infinitive objective phrase" },
@@ -137,6 +179,27 @@ function ingestFreeText(rawText) {
     { pattern: /(?:desenlaces?|resultados?)\s*[:\-]\s*([^\n\.]+)/i, confidence: "high", evidence: "explicit outcome label" },
   ]);
 
+  const reportingFramework = detectField(normalized, [
+    { pattern: /(PRISMA-ScR[^\.]*)/i, confidence: "high", evidence: "explicit reporting framework mention" },
+    { pattern: /(?:follow|using|according to)\s+(PRISMA-ScR[^\.]*)/i, confidence: "high", evidence: "framework phrase" },
+  ]);
+  const eligibility = detectField(normalized, [
+    { pattern: /(?:studies will be included if|eligible studies include|inclusion criteria|eligibility criteria)\s*[:\-]?\s*([^\n]+)/i, confidence: "high", evidence: "eligibility phrase" },
+    { pattern: /(?:included if|eligibility)\s+([^\.]+)/i, confidence: "moderate", evidence: "eligibility sentence" },
+  ]);
+  const dataCharting = detectField(normalized, [
+    { pattern: /(?:data extraction|data charting|charting)\s*(?:will include|includes|include)?\s*[:\-]?\s*([^\n]+)/i, confidence: "high", evidence: "data extraction phrase" },
+    { pattern: /(?:variables collected|variables assessed)\s*[:\-]?\s*([^\n]+)/i, confidence: "moderate", evidence: "variables sentence" },
+  ]);
+  const noResultsYet = /(no results available at this stage|no results are available|results are not yet available|sin resultados disponibles)/i.test(normalized);
+  const databases = extractDatabases(normalized);
+  const contextSentence = extractSentenceByPattern(normalized, [
+    /multimorbidity|polypharmacy|drug.?drug interactions|older people living with hiv|beers|stopp\/start|anticholinergic burden|potentially inappropriate medication/i,
+  ]);
+  const rationaleSentence = extractSentenceByPattern(normalized, [
+    /remains unclear|gap|gaps|applicability|complexity|unclear/i,
+  ]);
+
   const study = {
     study_id: "AUTO-001",
     title: extractTitle(rawText),
@@ -149,6 +212,13 @@ function ingestFreeText(rawText) {
       /\b(\d+\s+(?:día|días|semana|semanas|mes|meses|año|años))\b/i,
     ]),
     outcomes: outcomes.value,
+    databases,
+    reporting_framework: reportingFramework.value,
+    eligibility_criteria: eligibility.value,
+    data_extraction_plan: dataCharting.value,
+    protocol_like: noResultsYet,
+    context: contextSentence,
+    rationale: rationaleSentence,
   };
 
   const findings = sentenceCandidates(normalized)
@@ -165,11 +235,19 @@ function ingestFreeText(rawText) {
     methods: methods,
     population: population,
     outcomes: outcomes,
+    reporting_framework: reportingFramework,
+    eligibility_criteria: eligibility,
+    data_extraction_plan: dataCharting,
+    databases: { value: databases.join(", "), confidence: databases.length ? "high" : "none", evidence: databases.length ? "database keyword match" : "" },
+    protocol_like: { value: noResultsYet ? "no results yet statement present" : null, confidence: noResultsYet ? "high" : "none", evidence: noResultsYet ? "explicit stage statement" : "" },
     design: { value: study.design, confidence: study.design ? "moderate" : "none", evidence: study.design ? "design keyword match" : "" },
   };
 
-  const missingFields = ["title", "objective", "design", "population", "duration", "outcomes"].filter((f) => !study[f]);
+  const missingFields = ["title", "objective", "design", "population", "outcomes"].filter((f) => !study[f]);
   if (!findings.length) missingFields.push("findings_quantitative");
+  if (!study.databases.length) missingFields.push("databases");
+  if (!study.eligibility_criteria) missingFields.push("eligibility_criteria");
+  if (!study.data_extraction_plan) missingFields.push("data_extraction_plan");
 
   return { study, findings, missing_fields: missingFields, detected_fields };
 }
@@ -191,8 +269,8 @@ function recommendArticleStrategy(text) {
   if (/(narrative review|state of the art|overview|revisión narrativa|revision narrativa)/i.test(t)) score.narrative_review += 3;
   if (/(theme|thematic|panorama|synthesis|síntesis|sintesis)/i.test(t)) score.narrative_review += 1;
 
-  if (/(scoping review|evidence map|research gaps|revisión de alcance|revision de alcance|mapa de evidencia|brechas)/i.test(t)) score.scoping_review += 4;
-  if (/(pubmed|embase|scopus|web of science)/i.test(t)) score.scoping_review += 1;
+  if (/(scoping review|evidence map|research gaps|revisión de alcance|revision de alcance|mapa de evidencia|brechas)/i.test(t)) score.scoping_review += 5;
+  if (/(pubmed|embase|scopus|web of science|prisma-scr|eligibility criteria|data extraction|charting)/i.test(t)) score.scoping_review += 3;
 
   if (/(conceptual|theoretical|framework|taxonomy|definición|teórico|teorico|marco conceptual)/i.test(t)) score.conceptual_article += 4;
 
@@ -230,9 +308,7 @@ function cautious(sentence, lang) {
 function buildDraft({ input, articleType, language, targetStyle, tone, strategy }) {
   const isEs = language === "es";
   const { study, findings, missing_fields } = input;
-  const title =
-    study.title ||
-    (isEs ? "Borrador científico privado" : "Private scientific draft");
+  const title = inferWorkingTitle(study);
 
   const findingsText = findings.length
     ? findings.map((f) => `- ${cautious(f.raw_result, language)}`).join("\n")
@@ -258,12 +334,12 @@ function buildDraft({ input, articleType, language, targetStyle, tone, strategy 
     })
     .join("\n");
 
-  const hivContext = /(hiv|vih|antiretroviral|polypharmacy|polifarmacia|prescription appropriateness|inappropriate prescribing|beers|stopp|start)/i.test(
-    `${study.title || ""} ${study.objective || ""} ${study.population || ""} ${input.findings.map((f) => f.raw_result).join(" ")}`
+  const hivContext = /(hiv|vih|antiretroviral|polypharmacy|polifarmacia|prescription appropriateness|inappropriate prescribing|beers|stopp|start|anticholinergic burden|drug.?drug interaction)/i.test(
+    `${study.title || ""} ${study.objective || ""} ${study.population || ""} ${study.context || ""} ${input.findings.map((f) => f.raw_result).join(" ")}`
   )
     ? isEs
-      ? "La población con VIH puede presentar polifarmacia, interacciones farmacológicas y riesgo de prescripción potencialmente inapropiada (p. ej., criterios Beers o STOPP/START)."
-      : "People living with HIV may face polypharmacy, drug–drug interactions, and potentially inappropriate prescribing risk (e.g., Beers or STOPP/START frameworks)."
+      ? "Personas mayores con VIH pueden presentar polifarmacia, interacciones farmacológicas y riesgo de medicación potencialmente inapropiada."
+      : "Older people living with HIV may face polypharmacy, drug–drug interactions, and potentially inappropriate medication risk."
     : "";
 
   const rewrittenObjective = study.objective
@@ -281,18 +357,31 @@ function buildDraft({ input, articleType, language, targetStyle, tone, strategy 
     : `Draft based on partial input; complete: ${missing_fields.length ? missing_fields.join(", ") : "no critical gaps detected"}.`;
 
   if (articleType === "scoping_review") {
+    const dbLine = study.databases.length ? study.databases.join(", ") : "PubMed, Embase, and Web of Science not clearly specified";
+    const resultsStatus = study.protocol_like
+      ? isEs
+        ? "No hay resultados disponibles en esta etapa; el texto corresponde a un borrador tipo protocolo."
+        : "No results are available at this stage; the text behaves as a protocol-like scoping draft."
+      : isEs
+        ? "Se reportan salidas de mapeo según el texto aportado."
+        : "Mapping-oriented outputs are reported from the provided text.";
     const methodsLines = [
       isEs ? "- Diseño: revisión de alcance." : "- Design: scoping review.",
-      isEs ? "- Marco metodológico: PRISMA-ScR." : "- Framework: PRISMA-ScR.",
       isEs
-        ? `- Fuentes de información: ${study.methods_summary || "bases de datos no totalmente especificadas en la entrada; sugerido PubMed/Embase/Scopus."}`
-        : `- Information sources: ${study.methods_summary || "databases not fully specified in input; suggested PubMed/Embase/Scopus."}`,
+        ? `- Marco metodológico: ${study.reporting_framework || "PRISMA-ScR no explicitado; inferido con confianza moderada por patrones de revisión de alcance"}.`
+        : `- Reporting framework: ${study.reporting_framework || "PRISMA-ScR not explicitly stated; inferred with moderate confidence from scoping-review patterns"}.`,
       isEs
-        ? `- Criterios de elegibilidad: ${study.population || "población objetivo no completamente definida"}; incluir tipo de estudio y periodo.`
-        : `- Eligibility criteria: ${study.population || "target population not fully defined"}; include study type and timeframe.`,
+        ? `- Fuentes de información: ${dbLine}.`
+        : `- Information sources / databases: ${dbLine}.`,
       isEs
-        ? `- Estrategia de charting de datos: extracción por dos revisores, variables clínicas y desenlaces (${study.outcomes || "desenlaces no totalmente especificados"}).`
-        : `- Data charting strategy: dual-reviewer extraction of clinical variables and outcomes (${study.outcomes || "outcomes not fully specified"}).`,
+        ? `- Criterios de elegibilidad: ${study.eligibility_criteria || study.population || "definición parcial; completar criterios explícitos de inclusión/exclusión"}.`
+        : `- Eligibility criteria: ${study.eligibility_criteria || study.population || "partially defined; add explicit inclusion/exclusion criteria"}.`,
+      isEs
+        ? `- Plan de charting / extracción: ${study.data_extraction_plan || "variables y dominios parcialmente definidos en la entrada"}.`
+        : `- Data charting / extraction plan: ${study.data_extraction_plan || "variables and domains are only partially defined in input"}.`,
+      isEs
+        ? "- Síntesis planificada: mapeo descriptivo de herramientas, dominios y estado de validación."
+        : "- Planned synthesis approach: descriptive mapping of tools, domains, and validation status.",
     ].join("\n");
 
     return [
@@ -307,25 +396,34 @@ function buildDraft({ input, articleType, language, targetStyle, tone, strategy 
       isEs ? "## Estado de extracción y confianza" : "## Extraction and confidence status",
       fieldConfidence,
       "",
-      isEs ? "## Antecedentes y justificación" : "## Background and rationale",
-      genericBackground,
+      isEs ? "## Introducción" : "## Introduction",
+      `${genericBackground}${study.context ? ` ${study.context}.` : ""}`,
       "",
-      isEs ? "## Objetivo" : "## Objective",
+      isEs ? "### Racional" : "### Rationale",
+      study.rationale || (isEs ? "La aplicabilidad de herramientas generales a VIH no está plenamente establecida." : "Applicability of general-population tools to HIV remains uncertain."),
+      "",
+      isEs ? "### Objetivo de la revisión" : "### Review objective",
       rewrittenObjective,
       "",
       isEs ? "## Métodos" : "## Methods",
       methodsLines,
       "",
-      isEs ? "## Salidas esperadas" : "## Expected outputs",
-      findingsText,
+      isEs ? "## Contribución esperada / brechas de conocimiento" : "## Expected contribution / knowledge gaps",
+      isEs
+        ? "El mapeo puede clarificar lagunas para adaptar criterios de prescripción apropiada en personas mayores con VIH."
+        : "This map can clarify HIV-specific gaps and support tailoring a prescription-appropriateness index.",
+      "",
+      isEs ? "## Salidas planificadas" : "## Planned outputs",
+      `- ${resultsStatus}`,
+      ...(findings.length ? [findingsText] : []),
       "",
       isEs ? "## Discusión" : "## Discussion",
       isEs
-        ? "Se anticipa heterogeneidad en definiciones de adecuación de prescripción, métricas de interacción y desenlaces clínicos; el mapeo permitirá identificar vacíos de evidencia."
-        : "Heterogeneity is expected across prescribing-appropriateness definitions, interaction metrics, and clinical endpoints; mapping should identify evidence gaps.",
+        ? "Se espera heterogeneidad entre criterios (Beers, STOPP/START) y dominios como interacciones fármaco-fármaco o carga anticolinérgica en VIH."
+        : "Heterogeneity is expected across tools (Beers, STOPP/START) and domains such as drug–drug interactions and anticholinergic burden in HIV.",
       "",
       isEs ? "## Limitaciones" : "## Limitations",
-      limitationLine,
+      `${limitationLine} ${isEs ? "Refinar con detalle metodológico antes de envío." : "Refine with full methodological detail before submission."}`,
     ].join("\n");
   }
 
@@ -386,6 +484,15 @@ function buildAudit({ input, selectedType, strategy, language }) {
       : `- ${label}: not detected`;
   });
 
+  const scopingChecks = [
+    { key: "objective", ok: !!input.study.objective, label: isEs ? "objetivo de revisión" : "review objective" },
+    { key: "framework", ok: !!input.study.reporting_framework, label: isEs ? "marco de reporte (p. ej., PRISMA-ScR)" : "reporting framework (e.g., PRISMA-ScR)" },
+    { key: "sources", ok: (input.study.databases || []).length > 0, label: isEs ? "estrategia de fuentes/bases" : "source/database strategy" },
+    { key: "eligibility", ok: !!input.study.eligibility_criteria, label: isEs ? "elegibilidad definida" : "eligibility definition" },
+    { key: "charting", ok: !!input.study.data_extraction_plan, label: isEs ? "plan de charting/extracción" : "charting/data extraction plan" },
+    { key: "protocol_stage", ok: input.study.protocol_like, label: isEs ? "declaración explícita de ausencia de resultados" : "explicit no-results-yet statement" },
+  ];
+
   const lines = isEs
     ? [
         "# Panel de auditoría y rigor",
@@ -396,7 +503,11 @@ function buildAudit({ input, selectedType, strategy, language }) {
         `- Posible desajuste tipo seleccionado/detectado: ${mismatch ? "sí" : "no"}`,
         "",
         "## Elementos metodológicos faltantes",
-        ...(missing.length ? missing.map((m) => `- ${m}`) : ["- No faltantes críticos detectados por heurísticas."]),
+        ...(selectedType === "scoping_review"
+          ? scopingChecks.map((c) => `- ${c.ok ? "cumple" : "brecha"}: ${c.label}`)
+          : missing.length
+            ? missing.map((m) => `- ${m}`)
+            : ["- No faltantes críticos detectados por heurísticas."]),
         "",
         "## Confianza de extracción",
         ...(confidenceLines.length ? confidenceLines : ["- Sin datos de confianza disponibles."]),
@@ -405,12 +516,18 @@ function buildAudit({ input, selectedType, strategy, language }) {
         ...overclaiming.map((o) => `- ${o}`),
         "",
         "## Limitaciones del borrador",
-        "- Generación heurística; no sustituye validación por expertos.",
+        "- Generación heurística con extracción constructiva; requiere revisión experta.",
         "- Sin verificación bibliográfica automática en este MVP local.",
         "- Sensible a calidad/completitud del texto de entrada.",
         "",
         "## Próximos pasos recomendados",
-        "- Añadir comparador, análisis estadístico y justificación de tamaño muestral.",
+        ...(selectedType === "scoping_review"
+          ? [
+              "- Detallar operadores de búsqueda, periodos y criterios de idioma.",
+              "- Definir proceso de selección y resolución de desacuerdos.",
+              "- Vincular tabla de variables con plan de síntesis descriptiva.",
+            ]
+          : ["- Añadir comparador, análisis estadístico y justificación de tamaño muestral."]),
         "- Ajustar conclusiones al nivel de evidencia disponible.",
         "- Incorporar referencias trazables por afirmación clave.",
       ]
@@ -423,7 +540,11 @@ function buildAudit({ input, selectedType, strategy, language }) {
         `- Possible selected/detected mismatch: ${mismatch ? "yes" : "no"}`,
         "",
         "## Missing methodological elements",
-        ...(missing.length ? missing.map((m) => `- ${m}`) : ["- No critical gaps detected by heuristics."]),
+        ...(selectedType === "scoping_review"
+          ? scopingChecks.map((c) => `- ${c.ok ? "met" : "gap"}: ${c.label}`)
+          : missing.length
+            ? missing.map((m) => `- ${m}`)
+            : ["- No critical gaps detected by heuristics."]),
         "",
         "## Extraction confidence",
         ...(confidenceLines.length ? confidenceLines : ["- No confidence metadata available."]),
@@ -432,12 +553,18 @@ function buildAudit({ input, selectedType, strategy, language }) {
         ...overclaiming.map((o) => `- ${o}`),
         "",
         "## Draft limitations",
-        "- Heuristic generation; does not replace expert validation.",
+        "- Heuristic but constructive extraction; expert review is still required.",
         "- No automatic bibliography verification in this local MVP.",
         "- Output quality depends on input detail quality.",
         "",
         "## Recommended next steps",
-        "- Add comparator, statistical plan, and sample-size rationale.",
+        ...(selectedType === "scoping_review"
+          ? [
+              "- Specify search operators, date limits, and language restrictions.",
+              "- Define screening workflow and disagreement resolution.",
+              "- Link variable charting fields to descriptive synthesis outputs.",
+            ]
+          : ["- Add comparator, statistical plan, and sample-size rationale."]),
         "- Align conclusion strength with available evidence.",
         "- Add traceable references for each key statement.",
       ];
